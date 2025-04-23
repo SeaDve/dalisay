@@ -9,7 +9,7 @@
 
 const uint8_t FLOW_SENSOR_PIN = 33;
 const unsigned long FLOW_SENSOR_INTERVAL_MS = 1000;
-const float FLOW_SENSOR_CALIBRATION_FACTOR = 4.5;
+const float FLOW_SENSOR_CALIBRATION_FACTOR = 4.5; // TODO Do proper calibration
 
 const uint8_t TDS_SENSOR_PIN = 32;
 const float TDS_SENSOR_VREF = 3.3;
@@ -21,7 +21,9 @@ const unsigned long TDS_SENSOR_PRINT_INTERVAL_MS = 800;
 const byte RFID_READER_SS_PIN = 5;
 const byte RFID_READER_RST_PIN = 0;
 
-const uint8_t VALVE_PIN = 2;
+const uint8_t VALVE_PIN = 2; // FIXME Change to proper relay module pin
+
+const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
 
 OneButton selectButton(27, true, true);
 OneButton upButton(14, true, true);
@@ -46,9 +48,13 @@ float totalFlowMl = 0;
 float hasContainer = false;
 float currContainerVolumeMl = 0.0;
 float toFillContainerVolumeMl = 0.0;
+float maxContainerVolumeMl = 0.0;
 
 const int16_t CONTAINER_RECT_RADIUS = 3;
 const int16_t CONTAINER_START_X = display.width() / 2 + 25;
+const int16_t CONTAINER_START_Y = 10;
+const int16_t CONTAINER_WIDTH = display.width() / 2 - 40;
+const int16_t CONTAINER_HEIGHT = display.height() - 30;
 const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 
 void IRAM_ATTR onFlowSensorInterrupt()
@@ -77,6 +83,34 @@ void onSelectButtonClicked()
   }
 }
 
+void onUpButtonClicked()
+{
+  if (hasContainer && !valveIsOpen)
+  {
+    float delta = maxContainerVolumeMl * TO_FILL_CONTAINER_VOLUME_ADJUST_STEP;
+
+    if (delta + toFillContainerVolumeMl <= maxContainerVolumeMl)
+    {
+      toFillContainerVolumeMl += delta;
+      displayContainerFillingStatusNeedsUpdate = true;
+    }
+  }
+}
+
+void onDownButtonClicked()
+{
+  if (hasContainer && !valveIsOpen)
+  {
+    float delta = maxContainerVolumeMl * TO_FILL_CONTAINER_VOLUME_ADJUST_STEP;
+
+    if (toFillContainerVolumeMl - delta >= 0)
+    {
+      toFillContainerVolumeMl -= delta;
+      displayContainerFillingStatusNeedsUpdate = true;
+    }
+  }
+}
+
 void setup()
 {
   setupSerial();
@@ -87,6 +121,8 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), onFlowSensorInterrupt, FALLING);
 
   selectButton.attachClick(onSelectButtonClicked);
+  upButton.attachClick(onUpButtonClicked);
+  downButton.attachClick(onDownButtonClicked);
 
   setupRfidReader();
 
@@ -217,27 +253,27 @@ void loop()
     if (content == "1d1181b8081080")
     {
       hasScanned = true;
-      toFillContainerVolumeMl = 250.0;
+      maxContainerVolumeMl = 250.0;
     }
     else if (content == "1d1081b8081080")
     {
       hasScanned = true;
-      toFillContainerVolumeMl = 500.0;
+      maxContainerVolumeMl = 500.0;
     }
     else if (content == "1d0f81b8081080")
     {
       hasScanned = true;
-      toFillContainerVolumeMl = 1000.0;
+      maxContainerVolumeMl = 1000.0;
     }
     else if (content == "1d0e81b8081080")
     {
       hasScanned = true;
-      toFillContainerVolumeMl = 1500.0;
+      maxContainerVolumeMl = 1500.0;
     }
     else if (content == "1d0d81b8081080")
     {
       hasScanned = true;
-      toFillContainerVolumeMl = 2000.0;
+      maxContainerVolumeMl = 2000.0;
     }
     else
     {
@@ -249,6 +285,7 @@ void loop()
     {
       hasContainer = true;
       currContainerVolumeMl = 0.0;
+      toFillContainerVolumeMl = maxContainerVolumeMl;
       displayContainerFillingStatusNeedsUpdate = true;
 
       valveIsOpen = false;
@@ -261,7 +298,7 @@ void loop()
 
   if (displayContainerFillingStatusNeedsUpdate && hasContainer)
   {
-    displayDrawContainerFillingStatus(currContainerVolumeMl, toFillContainerVolumeMl);
+    displayDrawContainerFillingStatus(currContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl);
   }
 
   if (valveNeedsUpdate)
@@ -299,6 +336,8 @@ void containerStopFilling()
   hasContainer = false;
   currContainerVolumeMl = 0.0;
   toFillContainerVolumeMl = 0.0;
+  maxContainerVolumeMl = 0.0;
+  displayContainerFillingStatusNeedsUpdate = true;
 
   valveIsOpen = false;
   valveNeedsUpdate = true;
@@ -373,47 +412,71 @@ void displayDrawValve(bool isOpen)
   display.display();
 }
 
-void displayDrawContainerFillingStatus(float currVolumeMl, float maxVolumeMl)
+void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl, float maxVolumeMl)
 {
-  display.fillRect(CONTAINER_TEXT_START_X, 20, display.width() - CONTAINER_TEXT_START_X, 64, BLACK);
+  display.fillRect(CONTAINER_TEXT_START_X, 0, display.width() - CONTAINER_TEXT_START_X, 64, BLACK);
 
-  int16_t rectX = display.width() / 2 + 25;
-  int16_t rectY = 10;
-  int16_t rectWidth = display.width() / 2 - 40;
-  int16_t rectHeight = display.height() - 30;
-  display.drawRoundRect(rectX, rectY, rectWidth, rectHeight, CONTAINER_RECT_RADIUS, WHITE);
+  display.drawRoundRect(CONTAINER_START_X, CONTAINER_START_Y, CONTAINER_WIDTH, CONTAINER_HEIGHT, CONTAINER_RECT_RADIUS, WHITE);
 
-  int16_t filledRectHeight = map(currVolumeMl, 0, maxVolumeMl, 0, rectHeight);
-  display.fillRoundRect(rectX, rectY + rectHeight - filledRectHeight, rectWidth, filledRectHeight, CONTAINER_RECT_RADIUS, WHITE);
+  int16_t filledRectHeight;
+  if (valveIsOpen)
+  {
+    const int16_t ARROW_OFFSET = 3;
+    int16_t arrowY = CONTAINER_START_Y + CONTAINER_HEIGHT - map(toFillVolumeMl, 0, maxVolumeMl, 0, CONTAINER_HEIGHT);
+
+    int16_t arrowLeftX = CONTAINER_START_X - ARROW_OFFSET;
+    display.fillTriangle(arrowLeftX, arrowY - ARROW_OFFSET, arrowLeftX, arrowY + ARROW_OFFSET, arrowLeftX + ARROW_OFFSET, arrowY, WHITE);
+
+    int16_t arrowRightX = CONTAINER_START_X + CONTAINER_WIDTH + ARROW_OFFSET;
+    display.fillTriangle(arrowRightX, arrowY - ARROW_OFFSET, arrowRightX, arrowY + ARROW_OFFSET, arrowRightX - ARROW_OFFSET, arrowY, WHITE);
+
+    filledRectHeight = map(currVolumeMl, 0, maxVolumeMl, 0, CONTAINER_HEIGHT);
+  }
+  else
+  {
+    filledRectHeight = map(toFillVolumeMl, 0, maxVolumeMl, 0, CONTAINER_HEIGHT);
+  }
+  display.fillRoundRect(CONTAINER_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT - filledRectHeight, CONTAINER_WIDTH, filledRectHeight, CONTAINER_RECT_RADIUS, WHITE);
 
   display.setTextSize(1);
 
   String fillStatusText;
-  if (maxVolumeMl == 0.0)
+  if (!valveIsOpen)
   {
     fillStatusText = "START";
   }
-  else if (currVolumeMl < maxVolumeMl)
+  else if (currVolumeMl < toFillVolumeMl)
   {
     fillStatusText = "FILLING";
   }
-  else if (currVolumeMl >= maxVolumeMl)
+  else if (currVolumeMl >= toFillVolumeMl)
   {
     fillStatusText = "DONE";
   }
 
-  int16_t rectTextX = rectX - 10;
   int16_t fillStatusX, fillStatusY;
   uint16_t fillStatusW, fillStatusH;
-  display.getTextBounds(fillStatusText, rectTextX, 0, &fillStatusX, &fillStatusY, &fillStatusW, &fillStatusH);
+  display.getTextBounds(fillStatusText, CONTAINER_TEXT_START_X, 0, &fillStatusX, &fillStatusY, &fillStatusW, &fillStatusH);
 
-  display.setCursor(rectTextX, 0);
+  display.setCursor(CONTAINER_TEXT_START_X, 0);
   display.println(fillStatusText);
 
-  display.setCursor(rectTextX, rectY + rectHeight + 2);
-  display.printf("%.1f/", currVolumeMl);
-  display.setCursor(rectTextX, rectY + rectHeight + 12);
-  display.printf("%.1fmL", maxVolumeMl);
+  if (valveIsOpen)
+  {
+    display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 2);
+    display.printf("%.1f/", currVolumeMl);
+
+    display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 12);
+    display.printf("%.1fmL", toFillVolumeMl);
+  }
+  else
+  {
+    display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 2);
+    display.printf("%.1f/", toFillVolumeMl);
+
+    display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 12);
+    display.printf("%.1fmL", maxVolumeMl);
+  }
 
   display.display();
 }
