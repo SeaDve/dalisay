@@ -45,7 +45,7 @@ bool displayContainerFillingStatusNeedsUpdate = false;
 
 float totalFlowMl = 0;
 
-float hasContainer = false;
+bool hasContainer = false;
 float currContainerVolumeMl = 0.0;
 float toFillContainerVolumeMl = 0.0;
 float maxContainerVolumeMl = 0.0;
@@ -136,9 +136,7 @@ void setupSerial()
   Serial.begin(9600);
 
   while (!Serial)
-  {
-    delay(100);
-  }
+    ;
 
   Serial.println(F("Serial initialized"));
 }
@@ -158,8 +156,6 @@ void setupDisplay()
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
     Serial.println(F("SSD1306 allocation failed"));
-    for (;;)
-      ;
   }
 
   display.clearDisplay();
@@ -231,7 +227,7 @@ void loop()
   {
     tdsSensorPrevPrintTimestamp = currentMs;
 
-    float averageVoltage = getMedianNum(tdsSensorBuffer, TDS_SENSOR_SAMPLE_COUNT) * TDS_SENSOR_VREF / 4096.0;
+    float averageVoltage = getArrayMedian(tdsSensorBuffer, TDS_SENSOR_SAMPLE_COUNT) * TDS_SENSOR_VREF / 4096.0;
 
     float compensationCoefficient = 1.0 + 0.02 * (TDS_SENSOR_AMBIENT_TEMP - 25.0);
     float compensationVoltage = averageVoltage / compensationCoefficient;
@@ -314,7 +310,7 @@ void loop()
 }
 
 // Returns the median of the array
-int getMedianNum(int array[], int filterLen)
+int getArrayMedian(int array[], int filterLen)
 {
   int bTab[filterLen];
   std::copy(array, array + filterLen, bTab);
@@ -343,7 +339,7 @@ void containerStopFilling()
   valveNeedsUpdate = true;
 }
 
-void displayDrawTotalFlow(float flowValueL)
+void displayDrawTotalFlow(float totalFlowL)
 {
   display.fillRect(0, 0, CONTAINER_TEXT_START_X, 40, BLACK);
 
@@ -351,15 +347,16 @@ void displayDrawTotalFlow(float flowValueL)
   display.setCursor(0, 0);
   display.println("TOTAL");
 
-  double pricePerL = 36.24 * (flowValueL / 1000);
+  double totalFlowCubicM = totalFlowL / 1000.0;
+  double totalPrice = 36.24 * totalFlowCubicM;
 
   display.setTextSize(2);
   display.setCursor(0, 9);
-  display.printf("P%.2f", pricePerL);
+  display.printf("P%.2f", totalPrice);
 
   display.setTextSize(1);
   display.setCursor(0, 26);
-  display.printf("(%.1fL)", flowValueL);
+  display.printf("(%.1fL)", totalFlowL);
 
   display.display();
 }
