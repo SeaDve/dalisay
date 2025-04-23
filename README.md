@@ -1,4 +1,4 @@
-# Device for Advanced Liquid Inspection, Sensing, Analytics, and Yield
+# Device for Advanced Liquid Inspection, Sensing, Analytics, and Yield (DALISAY)
 
 DALISAY is an RFID-based smart water dispensing system that monitors and controls water flow, quality, and usage with real-time feedback on an OLED display. Users scan an RFID-tagged container to identify its volume, then control the filling process using physical buttons.
 
