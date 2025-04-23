@@ -23,11 +23,13 @@ OneButton upButton(14, true, true);
 OneButton downButton(12, true, true);
 
 bool valveIsOpen = false;
+
 bool displayValveNeedsRedraw = true;
 
 Adafruit_SSD1306 display(128, 64, &Wire);
 
 const int16_t CONTAINER_START_X = display.width() / 2 + 25;
+const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 
 void IRAM_ATTR onFlowSensorInterrupt()
 {
@@ -70,7 +72,7 @@ void setupDisplay()
 
 void displayDrawTotalFlow(float flowValueL)
 {
-  display.fillRect(0, 0, CONTAINER_START_X, 40, BLACK);
+  display.fillRect(0, 0, CONTAINER_TEXT_START_X, 40, BLACK);
 
   display.setTextSize(1);
   display.setCursor(0, 0);
@@ -91,7 +93,7 @@ void displayDrawTotalFlow(float flowValueL)
 
 void displayDrawWaterQuality(float tdsValue)
 {
-  display.fillRect(0, 40, CONTAINER_START_X, 64, BLACK);
+  display.fillRect(0, 40, CONTAINER_TEXT_START_X, 64, BLACK);
 
   display.setTextSize(1);
   display.setCursor(0, 40);
@@ -124,15 +126,15 @@ void displayDrawWaterQuality(float tdsValue)
 
 void displayDrawValve(bool isOpen)
 {
-  display.fillRect(CONTAINER_START_X + 1, 0, display.width() - CONTAINER_START_X, 64, BLACK);
+  display.fillRect(CONTAINER_TEXT_START_X + 1, 0, display.width() - CONTAINER_TEXT_START_X, 64, BLACK);
 
   display.setTextSize(1);
-  display.setCursor(CONTAINER_START_X + 1, 0);
+  display.setCursor(CONTAINER_TEXT_START_X + 1, 20);
   display.println("VALVE");
 
   display.setTextSize(2);
-  display.setCursor(CONTAINER_START_X + 1, 9);
-  display.println(isOpen ? "OPEN" : "CLOSE");
+  display.setCursor(CONTAINER_TEXT_START_X + 1, 29);
+  display.println(isOpen ? "ON" : "OFF");
 
   display.display();
 }
