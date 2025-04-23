@@ -2,6 +2,7 @@
 #include <math.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <OneButton.h>
 #include <Wire.h>
 
 const uint8_t FLOW_SENSOR_PIN = 33;
@@ -17,13 +18,26 @@ const unsigned long TDS_SENSOR_PRINT_INTERVAL_MS = 800;
 
 volatile byte flowSensorCurrPulseCount = 0;
 
+OneButton selectButton(27, true, true);
+OneButton upButton(14, true, true);
+OneButton downButton(12, true, true);
+
+bool valveIsOpen = false;
+bool displayValveNeedsRedraw = true;
+
 Adafruit_SSD1306 display(128, 64, &Wire);
 
 const int16_t CONTAINER_START_X = display.width() / 2 + 25;
 
-void IRAM_ATTR flowSensorInterruptCallback()
+void IRAM_ATTR onFlowSensorInterrupt()
 {
   flowSensorCurrPulseCount++;
+}
+
+void onSelectButtonClicked()
+{
+  valveIsOpen = !valveIsOpen;
+  displayValveNeedsRedraw = true;
 }
 
 void setup()
@@ -33,7 +47,9 @@ void setup()
   pinMode(TDS_SENSOR_PIN, INPUT);
 
   pinMode(FLOW_SENSOR_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), flowSensorInterruptCallback, FALLING);
+  attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), onFlowSensorInterrupt, FALLING);
+
+  selectButton.attachClick(onSelectButtonClicked);
 
   setupDisplay();
 }
@@ -49,6 +65,7 @@ void setupDisplay()
 
   display.clearDisplay();
   display.setTextColor(WHITE);
+  display.setTextWrap(false);
 }
 
 void displayDrawTotalFlow(float flowValueL)
@@ -105,6 +122,21 @@ void displayDrawWaterQuality(float tdsValue)
   display.display();
 }
 
+void displayDrawValve(bool isOpen)
+{
+  display.fillRect(CONTAINER_START_X + 1, 0, display.width() - CONTAINER_START_X, 64, BLACK);
+
+  display.setTextSize(1);
+  display.setCursor(CONTAINER_START_X + 1, 0);
+  display.println("VALVE");
+
+  display.setTextSize(2);
+  display.setCursor(CONTAINER_START_X + 1, 9);
+  display.println(isOpen ? "OPEN" : "CLOSE");
+
+  display.display();
+}
+
 unsigned long flowSensorPrevTimestamp = millis();
 
 float totalFlowMl = 0;
@@ -117,6 +149,10 @@ int tdsSensorCurrBufferIndex = 0;
 
 void loop()
 {
+  downButton.tick();
+  upButton.tick();
+  selectButton.tick();
+
   unsigned long currentMs = millis();
 
   if (currentMs - flowSensorPrevTimestamp > FLOW_SENSOR_INTERVAL_MS)
@@ -138,17 +174,6 @@ void loop()
     totalFlowMl += flowMl;
 
     displayDrawTotalFlow(totalFlowMl / 1000);
-
-    Serial.print("Flow rate: ");
-    Serial.print(int(flowRate));
-    Serial.print("L/min");
-    Serial.print("\t");
-
-    Serial.print("Output Liquid Quantity: ");
-    Serial.print(totalFlowMl);
-    Serial.print("mL / ");
-    Serial.print(totalFlowMl / 1000);
-    Serial.println("L");
   }
 
   if (currentMs - tdsSensorPrevSampleTimestamp > TDS_SENSOR_SAMPLE_INTERVAL_MS)
@@ -174,13 +199,12 @@ void loop()
     float tdsValue = (133.42 * powf(compensationVoltage, 3) - 255.86 * powf(compensationVoltage, 2) + 857.39 * compensationVoltage) * 0.5;
 
     displayDrawWaterQuality(tdsValue);
+  }
 
-    Serial.print("voltage:");
-    Serial.print(averageVoltage, 2);
-    Serial.print("V   ");
-    Serial.print("TDS Value:");
-    Serial.print(tdsValue, 0);
-    Serial.println("ppm");
+  if (displayValveNeedsRedraw)
+  {
+    displayValveNeedsRedraw = false;
+    displayDrawValve(valveIsOpen);
   }
 }
 
