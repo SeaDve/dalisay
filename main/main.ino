@@ -172,6 +172,8 @@ unsigned long tdsSensorPrevPrintTimestamp = millis();
 
 void loop()
 {
+  bool displayNeedsUpdate = false;
+
   downButton.tick();
   upButton.tick();
   selectButton.tick();
@@ -209,6 +211,7 @@ void loop()
     }
 
     displayDrawTotalFlow(totalFlowMl / 1000);
+    displayNeedsUpdate = true;
   }
 
   if (currentMs - tdsSensorPrevSampleTimestamp > TDS_SENSOR_SAMPLE_INTERVAL_MS)
@@ -234,6 +237,7 @@ void loop()
     float tdsValue = (133.42 * powf(compensationVoltage, 3) - 255.86 * powf(compensationVoltage, 2) + 857.39 * compensationVoltage) * 0.5;
 
     displayDrawWaterQuality(tdsValue);
+    displayNeedsUpdate = true;
   }
 
   if (rfidReader.PICC_IsNewCardPresent() && rfidReader.PICC_ReadCardSerial())
@@ -294,7 +298,9 @@ void loop()
 
   if (displayContainerFillingStatusNeedsUpdate && hasContainer)
   {
+    displayContainerFillingStatusNeedsUpdate = false;
     displayDrawContainerFillingStatus(currContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl);
+    displayNeedsUpdate = true;
   }
 
   if (valveNeedsUpdate)
@@ -305,7 +311,14 @@ void loop()
     if (!hasContainer)
     {
       displayDrawValve(valveIsOpen);
+      displayNeedsUpdate = true;
     }
+  }
+
+  if (displayNeedsUpdate)
+  {
+    displayNeedsUpdate = false;
+    display.display();
   }
 }
 
@@ -357,8 +370,6 @@ void displayDrawTotalFlow(float totalFlowL)
   display.setTextSize(1);
   display.setCursor(0, 26);
   display.printf("(%.1fL)", totalFlowL);
-
-  display.display();
 }
 
 void displayDrawWaterQuality(float tdsValue)
@@ -391,7 +402,6 @@ void displayDrawWaterQuality(float tdsValue)
   }
 
   display.println(waterQualityText);
-  display.display();
 }
 
 void displayDrawValve(bool isOpen)
@@ -405,8 +415,6 @@ void displayDrawValve(bool isOpen)
   display.setTextSize(2);
   display.setCursor(CONTAINER_TEXT_START_X + 1, 29);
   display.println(isOpen ? "ON" : "OFF");
-
-  display.display();
 }
 
 void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl, float maxVolumeMl)
@@ -474,8 +482,6 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
     display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 12);
     display.printf("%.1fmL", maxVolumeMl);
   }
-
-  display.display();
 }
 
 void valveUpdate()
