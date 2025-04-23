@@ -45,15 +45,15 @@ void setup()
     display.setCursor(0, 49);
     display.println("OK");
 
-    int16_t recX = display.width() / 2 + 20;
+    int16_t recX = display.width() / 2 + 25;
     int16_t recY = 10;
-    int16_t recWidth = display.width() / 2 - 30;
-    int16_t recHeight = display.height() - 20;
+    int16_t recWidth = display.width() / 2 - 40;
+    int16_t recHeight = display.height() - 30;
     display.drawRoundRect(recX, recY, recWidth, recHeight, REC_RADIUS, WHITE);
 
     display.setTextSize(1);
 
-    int16_t recTextX = recX - 5;
+    int16_t recTextX = recX - 10;
     String fillStatusText = "FILLING";
     int16_t fillStatusX, fillStatusY;
     uint16_t fillStatusW, fillStatusH;
@@ -63,7 +63,10 @@ void setup()
     display.println(fillStatusText);
 
     display.setCursor(recTextX, recY + recHeight + 2);
-    display.println("31/50mL");
+    display.println("31/");
+    display.setCursor(recTextX, recY + recHeight + 12);
+    display.println("50mL");
+
     display.display();
 
     for (int i = 0; i < recHeight; i++)
@@ -74,7 +77,7 @@ void setup()
     }
 
     display.fillRect(fillStatusX, fillStatusY, fillStatusW, fillStatusH, BLACK);
-    display.setCursor(recX, 0);
+    display.setCursor(recTextX, 0);
     display.println("FILLED");
     display.display();
 }
