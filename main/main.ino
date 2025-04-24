@@ -83,6 +83,14 @@ void onSelectButtonClicked()
   }
 }
 
+void onSelectButtonDoubleClicked()
+{
+  if (hasContainer && !valveIsOpen)
+  {
+    containerClearFilling();
+  }
+}
+
 void onUpButtonClicked()
 {
   if (hasContainer && !valveIsOpen)
@@ -121,6 +129,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), onFlowSensorInterrupt, FALLING);
 
   selectButton.attachClick(onSelectButtonClicked);
+  selectButton.attachDoubleClick(onSelectButtonDoubleClicked);
   upButton.attachClick(onUpButtonClicked);
   downButton.attachClick(onDownButtonClicked);
 
@@ -340,13 +349,18 @@ int getArrayMedian(int array[], int filterLen)
   }
 }
 
-void containerStopFilling()
+void containerClearFilling()
 {
   hasContainer = false;
   currContainerVolumeMl = 0.0;
   toFillContainerVolumeMl = 0.0;
   maxContainerVolumeMl = 0.0;
   displayContainerFillingStatusNeedsUpdate = true;
+}
+
+void containerStopFilling()
+{
+  containerClearFilling();
 
   valveIsOpen = false;
   valveNeedsUpdate = true;
