@@ -312,7 +312,7 @@ void setupServer()
   server.on("/getToFillContainerVolumeMl", HTTP_GET, onGetToFillContainerVolumeMl);
   server.on("/getMaxContainerVolumeMl", HTTP_GET, onGetMaxContainerVolumeMl);
   server.on("/getCostPerCubicM", HTTP_GET, onServerGetCostPerCubicM);
-  server.on("/setCostPerCubicM", HTTP_PUT, onServerSetCostPerCubicM);
+  server.on("/setCostPerCubicM", HTTP_GET, onServerSetCostPerCubicM);
 
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
