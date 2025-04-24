@@ -23,6 +23,8 @@ const byte RFID_READER_RST_PIN = 0;
 
 const uint8_t VALVE_PIN = 2; // FIXME Change to proper relay module pin
 
+Adafruit_SSD1306 display(128, 64, &Wire);
+
 const int16_t CONTAINER_RECT_RADIUS = 3;
 const int16_t CONTAINER_START_X = display.width() / 2 + 25;
 const int16_t CONTAINER_START_Y = 10;
@@ -37,8 +39,6 @@ OneButton upButton(14, true, true);
 OneButton downButton(12, true, true);
 
 MFRC522 rfidReader(RFID_READER_SS_PIN, RFID_READER_RST_PIN);
-
-Adafruit_SSD1306 display(128, 64, &Wire);
 
 volatile byte flowSensorCurrPulseCount = 0;
 
@@ -219,7 +219,8 @@ void loop()
       displayContainerFillingStatusNeedsUpdate = true;
     }
 
-    displayDrawTotalFlow(totalFlowMl / 1000);
+    float totalFlowL = totalFlowMl / 1000.0;
+    displayDrawTotalFlow(totalFlowL);
     displayNeedsUpdate = true;
   }
 
@@ -305,17 +306,17 @@ void loop()
     rfidReader.PCD_StopCrypto1();
   }
 
-  if (displayContainerFillingStatusNeedsUpdate && hasContainer)
+  if ((valveNeedsUpdate || displayContainerFillingStatusNeedsUpdate) && hasContainer)
   {
     displayContainerFillingStatusNeedsUpdate = false;
-    displayDrawContainerFillingStatus(currContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl);
+    displayDrawContainerFillingStatus(currContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
     displayNeedsUpdate = true;
   }
 
   if (valveNeedsUpdate)
   {
     valveNeedsUpdate = false;
-    valveUpdate();
+    valveUpdate(valveIsOpen);
 
     if (!hasContainer)
     {
@@ -431,14 +432,14 @@ void displayDrawValve(bool isOpen)
   display.println(isOpen ? "ON" : "OFF");
 }
 
-void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl, float maxVolumeMl)
+void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl, float maxVolumeMl, float isFilling)
 {
   display.fillRect(CONTAINER_TEXT_START_X, 0, display.width() - CONTAINER_TEXT_START_X, 64, BLACK);
 
   display.drawRoundRect(CONTAINER_START_X, CONTAINER_START_Y, CONTAINER_WIDTH, CONTAINER_HEIGHT, CONTAINER_RECT_RADIUS, WHITE);
 
   int16_t filledRectHeight;
-  if (valveIsOpen)
+  if (isFilling)
   {
     const int16_t ARROW_OFFSET = 3;
     int16_t arrowY = CONTAINER_START_Y + CONTAINER_HEIGHT - map(toFillVolumeMl, 0, maxVolumeMl, 0, CONTAINER_HEIGHT);
@@ -460,7 +461,7 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
   display.setTextSize(1);
 
   String fillStatusText;
-  if (!valveIsOpen)
+  if (!isFilling)
   {
     fillStatusText = "START";
   }
@@ -480,7 +481,7 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
   display.setCursor(CONTAINER_TEXT_START_X, 0);
   display.println(fillStatusText);
 
-  if (valveIsOpen)
+  if (isFilling)
   {
     display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 2);
     display.printf("%.1f/", currVolumeMl);
@@ -498,9 +499,9 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
   }
 }
 
-void valveUpdate()
+void valveUpdate(bool isOpen)
 {
-  if (valveIsOpen)
+  if (isOpen)
   {
     digitalWrite(VALVE_PIN, HIGH);
   }
