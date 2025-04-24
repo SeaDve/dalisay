@@ -23,6 +23,13 @@ const byte RFID_READER_RST_PIN = 0;
 
 const uint8_t VALVE_PIN = 2; // FIXME Change to proper relay module pin
 
+const int16_t CONTAINER_RECT_RADIUS = 3;
+const int16_t CONTAINER_START_X = display.width() / 2 + 25;
+const int16_t CONTAINER_START_Y = 10;
+const int16_t CONTAINER_WIDTH = display.width() / 2 - 40;
+const int16_t CONTAINER_HEIGHT = display.height() - 30;
+const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
+
 const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
 
 OneButton selectButton(27, true, true);
@@ -49,13 +56,6 @@ bool hasContainer = false;
 float currContainerVolumeMl = 0.0;
 float toFillContainerVolumeMl = 0.0;
 float maxContainerVolumeMl = 0.0;
-
-const int16_t CONTAINER_RECT_RADIUS = 3;
-const int16_t CONTAINER_START_X = display.width() / 2 + 25;
-const int16_t CONTAINER_START_Y = 10;
-const int16_t CONTAINER_WIDTH = display.width() / 2 - 40;
-const int16_t CONTAINER_HEIGHT = display.height() - 30;
-const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 
 void IRAM_ATTR onFlowSensorInterrupt()
 {
