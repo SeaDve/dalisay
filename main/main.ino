@@ -1,6 +1,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <algorithm>
+#include <ESPAsyncWebServer.h>
+#include <AsyncWebSocket.h>
 #include <math.h>
 #include <MFRC522.h>
 #include <OneButton.h>
@@ -32,6 +34,17 @@ const int16_t CONTAINER_WIDTH = display.width() / 2 - 40;
 const int16_t CONTAINER_HEIGHT = display.height() - 30;
 const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 
+const char *WIFI_SSID = "HUAWEI-2.4G-E75z";
+const char *WIFI_PASSWORD = "JgY5wBGt";
+
+const char *WS_DATA_FLOW_RATE = "flowRate";
+const char *WS_DATA_TOTAL_FLOW_ML = "totalFlowMl";
+const char *WS_DATA_TDS_VALUE = "tdsValue";
+const char *WS_DATA_VALVE_IS_OPEN = "valveIsOpen";
+const char *WS_DATA_FILLED_CONTAINER_VOLUME_ML = "filledContainerVolumeMl";
+const char *WS_DATA_TO_FILL_CONTAINER_VOLUME_ML = "toFillContainerVolumeMl";
+const char *WS_DATA_MAX_CONTAINER_VOLUME_ML = "maxContainerVolumeMl";
+
 const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
 
 OneButton selectButton(27, true, true);
@@ -40,22 +53,34 @@ OneButton downButton(12, true, true);
 
 MFRC522 rfidReader(RFID_READER_SS_PIN, RFID_READER_RST_PIN);
 
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
 volatile byte flowSensorCurrPulseCount = 0;
 
 int tdsSensorBuffer[TDS_SENSOR_SAMPLE_COUNT];
 int tdsSensorCurrBufferIndex = 0;
 
+float flowRate = 0.0;
+float totalFlowMl = 0;
+
+float tdsValue = 0.0;
+
 bool valveIsOpen = false;
 bool valveNeedsUpdate = true;
 
-bool displayContainerFillingStatusNeedsUpdate = false;
+bool displayTotalFlowNeedsUpdate = false;
+bool displayNeedsUpdate = false;
 
-float totalFlowMl = 0;
-
-bool hasContainer = false;
 float filledContainerVolumeMl = 0.0;
 float toFillContainerVolumeMl = 0.0;
 float maxContainerVolumeMl = 0.0;
+
+bool filledContainerVolumeNeedsUpdate = false;
+bool toFillContainerVolumeNeedsUpdate = false;
+bool maxContainerVolumeNeedsUpdate = false;
+
+float costPerCubicM = 36.24;
 
 void IRAM_ATTR onFlowSensorInterrupt()
 {
@@ -64,7 +89,7 @@ void IRAM_ATTR onFlowSensorInterrupt()
 
 void onSelectButtonClicked()
 {
-  if (hasContainer)
+  if (maxContainerVolumeMl > 0.0)
   {
     if (valveIsOpen)
     {
@@ -85,7 +110,7 @@ void onSelectButtonClicked()
 
 void onSelectButtonDoubleClicked()
 {
-  if (hasContainer && !valveIsOpen)
+  if (maxContainerVolumeMl > 0.0 && !valveIsOpen)
   {
     containerClearFilling();
   }
@@ -93,28 +118,28 @@ void onSelectButtonDoubleClicked()
 
 void onUpButtonClicked()
 {
-  if (hasContainer && !valveIsOpen)
+  if (maxContainerVolumeMl > 0.0 && !valveIsOpen)
   {
     float delta = maxContainerVolumeMl * TO_FILL_CONTAINER_VOLUME_ADJUST_STEP;
 
     if (delta + toFillContainerVolumeMl <= maxContainerVolumeMl)
     {
       toFillContainerVolumeMl += delta;
-      displayContainerFillingStatusNeedsUpdate = true;
+      toFillContainerVolumeNeedsUpdate = true;
     }
   }
 }
 
 void onDownButtonClicked()
 {
-  if (hasContainer && !valveIsOpen)
+  if (maxContainerVolumeMl > 0.0 && !valveIsOpen)
   {
     float delta = maxContainerVolumeMl * TO_FILL_CONTAINER_VOLUME_ADJUST_STEP;
 
     if (toFillContainerVolumeMl - delta >= 0.0)
     {
       toFillContainerVolumeMl -= delta;
-      displayContainerFillingStatusNeedsUpdate = true;
+      toFillContainerVolumeNeedsUpdate = true;
     }
   }
 }
@@ -138,11 +163,13 @@ void setup()
   pinMode(VALVE_PIN, OUTPUT);
 
   setupDisplay();
+
+  setupServer();
 }
 
 void setupSerial()
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   while (!Serial)
     ;
@@ -171,7 +198,118 @@ void setupDisplay()
   display.setTextColor(WHITE);
   display.setTextWrap(false);
 
+  displayDrawTotalFlow(totalFlowMl, 0.0);
+  displayDrawWaterQuality(tdsValue);
+  displayDrawValve(valveIsOpen);
+  displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
+  displayNeedsUpdate = true;
+
   Serial.println(F("Display initialized"));
+}
+
+void onGetTotalFlowMl(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(totalFlowMl));
+}
+
+void onGetTdsValue(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(tdsValue));
+}
+
+void onGetValveIsOpen(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(valveIsOpen));
+}
+
+void onGetFlowRate(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(flowRate));
+}
+
+void onGetFilledContainerVolumeMl(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(filledContainerVolumeMl));
+}
+
+void onGetToFillContainerVolumeMl(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(toFillContainerVolumeMl));
+}
+
+void onGetMaxContainerVolumeMl(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(maxContainerVolumeMl));
+}
+
+void onServerSetCostPerCubicM(AsyncWebServerRequest *request)
+{
+  if (request->hasParam("value"))
+  {
+    String cost = request->getParam("value")->value();
+    costPerCubicM = cost.toFloat();
+    displayTotalFlowNeedsUpdate = true;
+  }
+  request->send(200, "text/plain", "OK");
+}
+
+void onServerGetCostPerCubicM(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(costPerCubicM));
+}
+
+void onWsEvent(AsyncWebSocket *ws, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len)
+{
+  switch (type)
+  {
+  case WS_EVT_CONNECT:
+    Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    break;
+  case WS_EVT_DISCONNECT:
+    Serial.printf("WebSocket client #%u disconnected\n", client->id());
+    break;
+  case WS_EVT_DATA:
+  case WS_EVT_PONG:
+  case WS_EVT_ERROR:
+    break;
+  }
+}
+
+void setupServer()
+{
+  WiFi.mode(WIFI_AP);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  Serial.print("Connecting to WiFi ..");
+
+  unsigned long prevMs = 0;
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    unsigned long currMs = millis();
+    if (currMs - prevMs >= 1000)
+    {
+      Serial.print('.');
+      prevMs = currMs;
+    }
+  }
+
+  Serial.println(WiFi.localIP());
+
+  server.on("/getFlowRate", HTTP_GET, onGetFlowRate);
+  server.on("/getTotalFlowMl", HTTP_GET, onGetTotalFlowMl);
+  server.on("/getTdsValue", HTTP_GET, onGetTdsValue);
+  server.on("/getValveIsOpen", HTTP_GET, onGetValveIsOpen);
+  server.on("/getFilledContainerVolumeMl", HTTP_GET, onGetFilledContainerVolumeMl);
+  server.on("/getToFillContainerVolumeMl", HTTP_GET, onGetToFillContainerVolumeMl);
+  server.on("/getMaxContainerVolumeMl", HTTP_GET, onGetMaxContainerVolumeMl);
+
+  server.on("/setCostPerCubicM", HTTP_GET, onServerSetCostPerCubicM);
+  server.on("/getCostPerCubicM", HTTP_GET, onServerGetCostPerCubicM);
+
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+
+  server.begin();
 }
 
 unsigned long flowSensorPrevTimestamp = millis();
@@ -179,9 +317,14 @@ unsigned long flowSensorPrevTimestamp = millis();
 unsigned long tdsSensorPrevSampleTimestamp = millis();
 unsigned long tdsSensorPrevPrintTimestamp = millis();
 
+float prevFlowRate = 0.0;
+float prevTotalFlowMl = 0.0;
+float prevTdsValue = 0.0;
+float prevFilledContainerVolumeMl = 0.0;
+
 void loop()
 {
-  bool displayNeedsUpdate = false;
+  ws.cleanupClients();
 
   downButton.tick();
   upButton.tick();
@@ -200,28 +343,43 @@ void loop()
     // that to scale the output. We also apply the calibrationFactor to scale the output
     // based on the number of pulses per second per units of measure (litres/minute in
     // this case) coming from the sensor.
-    float flowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
+    flowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
     flowSensorPrevTimestamp = currMs;
 
     // Divide the flow rate in L/min by 60 to get water flow per second, then multiply by 1000 to convert to mL.
     float flowMl = (flowRate / 60) * 1000;
     totalFlowMl += flowMl;
 
-    if (hasContainer)
+    if (maxContainerVolumeMl > 0.0)
     {
       filledContainerVolumeMl += flowMl;
 
-      if (filledContainerVolumeMl > toFillContainerVolumeMl)
+      if (abs(filledContainerVolumeMl - prevFilledContainerVolumeMl) > __FLT_EPSILON__)
       {
-        containerStopFilling();
-      }
+        if (filledContainerVolumeMl > toFillContainerVolumeMl)
+        {
+          containerStopFilling();
+        }
 
-      displayContainerFillingStatusNeedsUpdate = true;
+        filledContainerVolumeNeedsUpdate = true;
+      }
     }
 
-    float totalFlowL = totalFlowMl / 1000.0;
-    displayDrawTotalFlow(totalFlowL);
-    displayNeedsUpdate = true;
+    if (abs(totalFlowMl - prevTotalFlowMl) > __FLT_EPSILON__)
+    {
+      displayTotalFlowNeedsUpdate = true;
+
+      wsSend(WS_DATA_TOTAL_FLOW_ML, String(totalFlowMl));
+
+      prevTotalFlowMl = totalFlowMl;
+    }
+
+    if (abs(flowRate - prevFlowRate) > __FLT_EPSILON__)
+    {
+      wsSend(WS_DATA_FLOW_RATE, String(flowRate));
+
+      prevFlowRate = flowRate;
+    }
   }
 
   if (currMs - tdsSensorPrevSampleTimestamp > TDS_SENSOR_SAMPLE_INTERVAL_MS)
@@ -244,22 +402,31 @@ void loop()
 
     float compensationCoefficient = 1.0 + 0.02 * (TDS_SENSOR_AMBIENT_TEMP - 25.0);
     float compensationVoltage = averageVoltage / compensationCoefficient;
-    float tdsValue = (133.42 * powf(compensationVoltage, 3) - 255.86 * powf(compensationVoltage, 2) + 857.39 * compensationVoltage) * 0.5;
+    tdsValue = (133.42 * powf(compensationVoltage, 3) - 255.86 * powf(compensationVoltage, 2) + 857.39 * compensationVoltage) * 0.5;
 
-    displayDrawWaterQuality(tdsValue);
-    displayNeedsUpdate = true;
+    if (abs(tdsValue - prevTdsValue) > __FLT_EPSILON__)
+    {
+      wsSend(WS_DATA_TDS_VALUE, String(tdsValue));
+
+      displayDrawWaterQuality(tdsValue);
+      displayNeedsUpdate = true;
+
+      prevTdsValue = tdsValue;
+    }
   }
 
   if (rfidReader.PICC_IsNewCardPresent() && rfidReader.PICC_ReadCardSerial())
   {
     maxContainerVolumeMl = getContainerVolume(rfidReader.uid.uidByte, rfidReader.uid.size);
 
-    if (maxContainerVolumeMl > 0)
+    if (maxContainerVolumeMl > 0.0)
     {
-      hasContainer = true;
       filledContainerVolumeMl = 0.0;
       toFillContainerVolumeMl = maxContainerVolumeMl;
-      displayContainerFillingStatusNeedsUpdate = true;
+
+      filledContainerVolumeNeedsUpdate = true;
+      toFillContainerVolumeNeedsUpdate = true;
+      maxContainerVolumeNeedsUpdate = true;
 
       valveIsOpen = false;
       valveNeedsUpdate = true;
@@ -275,9 +442,18 @@ void loop()
     rfidReader.PCD_StopCrypto1();
   }
 
-  if (valveNeedsUpdate || displayContainerFillingStatusNeedsUpdate)
+  if (displayTotalFlowNeedsUpdate)
   {
-    if (hasContainer)
+    float totalFlowCubicM = totalFlowMl / 1000000.0;
+    displayDrawTotalFlow(totalFlowMl, totalFlowCubicM * costPerCubicM);
+    displayNeedsUpdate = true;
+
+    displayTotalFlowNeedsUpdate = false;
+  }
+
+  if (filledContainerVolumeNeedsUpdate || toFillContainerVolumeNeedsUpdate || maxContainerVolumeNeedsUpdate || valveNeedsUpdate)
+  {
+    if (maxContainerVolumeMl > 0.0)
     {
       displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
       displayNeedsUpdate = true;
@@ -287,20 +463,37 @@ void loop()
       displayDrawValve(valveIsOpen);
       displayNeedsUpdate = true;
     }
+  }
 
-    displayContainerFillingStatusNeedsUpdate = false;
+  if (filledContainerVolumeNeedsUpdate)
+  {
+    wsSend(WS_DATA_FILLED_CONTAINER_VOLUME_ML, String(filledContainerVolumeMl));
+    filledContainerVolumeNeedsUpdate = false;
+  }
+
+  if (toFillContainerVolumeNeedsUpdate)
+  {
+    wsSend(WS_DATA_TO_FILL_CONTAINER_VOLUME_ML, String(toFillContainerVolumeMl));
+    toFillContainerVolumeNeedsUpdate = false;
+  }
+
+  if (maxContainerVolumeNeedsUpdate)
+  {
+    wsSend(WS_DATA_MAX_CONTAINER_VOLUME_ML, String(maxContainerVolumeMl));
+    maxContainerVolumeNeedsUpdate = false;
   }
 
   if (valveNeedsUpdate)
   {
     valveUpdate(valveIsOpen);
-
+    wsSend(WS_DATA_VALVE_IS_OPEN, String(valveIsOpen));
     valveNeedsUpdate = false;
   }
 
   if (displayNeedsUpdate)
   {
     display.display();
+    displayNeedsUpdate = false;
   }
 }
 
@@ -346,13 +539,20 @@ float getContainerVolume(byte *uid, size_t uidSize)
   return -1;
 }
 
+void wsSend(const char *dataType, String data)
+{
+  ws.printfAll("%s: %s", dataType, data.c_str());
+}
+
 void containerClearFilling()
 {
-  hasContainer = false;
   filledContainerVolumeMl = 0.0;
   toFillContainerVolumeMl = 0.0;
   maxContainerVolumeMl = 0.0;
-  displayContainerFillingStatusNeedsUpdate = true;
+
+  filledContainerVolumeNeedsUpdate = true;
+  toFillContainerVolumeNeedsUpdate = true;
+  maxContainerVolumeNeedsUpdate = true;
 }
 
 void containerStopFilling()
@@ -363,7 +563,7 @@ void containerStopFilling()
   valveNeedsUpdate = true;
 }
 
-void displayDrawTotalFlow(float totalFlowL)
+void displayDrawTotalFlow(float totalMl, float totalCost)
 {
   display.fillRect(0, 0, CONTAINER_TEXT_START_X, 40, BLACK);
 
@@ -371,16 +571,13 @@ void displayDrawTotalFlow(float totalFlowL)
   display.setCursor(0, 0);
   display.println("TOTAL");
 
-  double totalFlowCubicM = totalFlowL / 1000.0;
-  double totalPrice = 36.24 * totalFlowCubicM;
-
   display.setTextSize(2);
   display.setCursor(0, 9);
-  display.printf("P%.2f", totalPrice);
+  display.printf("P%.2f", totalCost);
 
   display.setTextSize(1);
   display.setCursor(0, 26);
-  display.printf("(%.1fL)", totalFlowL);
+  display.printf("(%.1fL)", totalMl / 1000.0);
 }
 
 void displayDrawWaterQuality(float tdsValue)
