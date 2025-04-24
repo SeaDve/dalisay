@@ -8,7 +8,7 @@
 #include <Wire.h>
 
 const uint8_t FLOW_SENSOR_PIN = 33;
-const unsigned long FLOW_SENSOR_INTERVAL_MS = 1000;
+const unsigned long FLOW_SENSOR_UPDATE_INTERVAL_MS = 1000;
 const float FLOW_SENSOR_CALIBRATION_FACTOR = 4.5; // TODO Do proper calibration
 
 const uint8_t TDS_SENSOR_PIN = 32;
@@ -16,7 +16,7 @@ const float TDS_SENSOR_VREF = 3.3;
 const float TDS_SENSOR_AMBIENT_TEMP = 25.0;
 const int TDS_SENSOR_SAMPLE_COUNT = 30;
 const unsigned long TDS_SENSOR_SAMPLE_INTERVAL_MS = 40;
-const unsigned long TDS_SENSOR_PRINT_INTERVAL_MS = 800;
+const unsigned long TDS_SENSOR_UPDATE_INTERVAL_MS = 800;
 
 const byte RFID_READER_SS_PIN = 5;
 const byte RFID_READER_RST_PIN = 0;
@@ -53,7 +53,7 @@ bool displayContainerFillingStatusNeedsUpdate = false;
 float totalFlowMl = 0;
 
 bool hasContainer = false;
-float currContainerVolumeMl = 0.0;
+float filledContainerVolumeMl = 0.0;
 float toFillContainerVolumeMl = 0.0;
 float maxContainerVolumeMl = 0.0;
 
@@ -111,7 +111,7 @@ void onDownButtonClicked()
   {
     float delta = maxContainerVolumeMl * TO_FILL_CONTAINER_VOLUME_ADJUST_STEP;
 
-    if (toFillContainerVolumeMl - delta >= 0)
+    if (toFillContainerVolumeMl - delta >= 0.0)
     {
       toFillContainerVolumeMl -= delta;
       displayContainerFillingStatusNeedsUpdate = true;
@@ -187,9 +187,9 @@ void loop()
   upButton.tick();
   selectButton.tick();
 
-  unsigned long currentMs = millis();
+  unsigned long currMs = millis();
 
-  if (currentMs - flowSensorPrevTimestamp > FLOW_SENSOR_INTERVAL_MS)
+  if (currMs - flowSensorPrevTimestamp > FLOW_SENSOR_UPDATE_INTERVAL_MS)
   {
 
     byte pulseCount = flowSensorCurrPulseCount;
@@ -200,8 +200,8 @@ void loop()
     // that to scale the output. We also apply the calibrationFactor to scale the output
     // based on the number of pulses per second per units of measure (litres/minute in
     // this case) coming from the sensor.
-    float flowRate = ((1000.0 / (currentMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
-    flowSensorPrevTimestamp = currentMs;
+    float flowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
+    flowSensorPrevTimestamp = currMs;
 
     // Divide the flow rate in L/min by 60 to get water flow per second, then multiply by 1000 to convert to mL.
     float flowMl = (flowRate / 60) * 1000;
@@ -209,9 +209,9 @@ void loop()
 
     if (hasContainer)
     {
-      currContainerVolumeMl += flowMl;
+      filledContainerVolumeMl += flowMl;
 
-      if (currContainerVolumeMl > toFillContainerVolumeMl)
+      if (filledContainerVolumeMl > toFillContainerVolumeMl)
       {
         containerStopFilling();
       }
@@ -224,9 +224,9 @@ void loop()
     displayNeedsUpdate = true;
   }
 
-  if (currentMs - tdsSensorPrevSampleTimestamp > TDS_SENSOR_SAMPLE_INTERVAL_MS)
+  if (currMs - tdsSensorPrevSampleTimestamp > TDS_SENSOR_SAMPLE_INTERVAL_MS)
   {
-    tdsSensorPrevSampleTimestamp = currentMs;
+    tdsSensorPrevSampleTimestamp = currMs;
 
     tdsSensorBuffer[tdsSensorCurrBufferIndex] = analogRead(TDS_SENSOR_PIN);
     tdsSensorCurrBufferIndex++;
@@ -236,9 +236,9 @@ void loop()
     }
   }
 
-  if (currentMs - tdsSensorPrevPrintTimestamp > TDS_SENSOR_PRINT_INTERVAL_MS)
+  if (currMs - tdsSensorPrevPrintTimestamp > TDS_SENSOR_UPDATE_INTERVAL_MS)
   {
-    tdsSensorPrevPrintTimestamp = currentMs;
+    tdsSensorPrevPrintTimestamp = currMs;
 
     float averageVoltage = getArrayMedian(tdsSensorBuffer, TDS_SENSOR_SAMPLE_COUNT) * TDS_SENSOR_VREF / 4096.0;
 
@@ -294,7 +294,7 @@ void loop()
     if (hasScanned)
     {
       hasContainer = true;
-      currContainerVolumeMl = 0.0;
+      filledContainerVolumeMl = 0.0;
       toFillContainerVolumeMl = maxContainerVolumeMl;
       displayContainerFillingStatusNeedsUpdate = true;
 
@@ -309,7 +309,7 @@ void loop()
   if ((valveNeedsUpdate || displayContainerFillingStatusNeedsUpdate) && hasContainer)
   {
     displayContainerFillingStatusNeedsUpdate = false;
-    displayDrawContainerFillingStatus(currContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
+    displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
     displayNeedsUpdate = true;
   }
 
@@ -353,7 +353,7 @@ int getArrayMedian(int array[], int filterLen)
 void containerClearFilling()
 {
   hasContainer = false;
-  currContainerVolumeMl = 0.0;
+  filledContainerVolumeMl = 0.0;
   toFillContainerVolumeMl = 0.0;
   maxContainerVolumeMl = 0.0;
   displayContainerFillingStatusNeedsUpdate = true;
@@ -432,7 +432,7 @@ void displayDrawValve(bool isOpen)
   display.println(isOpen ? "ON" : "OFF");
 }
 
-void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl, float maxVolumeMl, float isFilling)
+void displayDrawContainerFillingStatus(float filledVolumeMl, float toFillVolumeMl, float maxVolumeMl, float isFilling)
 {
   display.fillRect(CONTAINER_TEXT_START_X, 0, display.width() - CONTAINER_TEXT_START_X, 64, BLACK);
 
@@ -450,7 +450,7 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
     int16_t arrowRightX = CONTAINER_START_X + CONTAINER_WIDTH + ARROW_OFFSET;
     display.fillTriangle(arrowRightX, arrowY - ARROW_OFFSET, arrowRightX, arrowY + ARROW_OFFSET, arrowRightX - ARROW_OFFSET, arrowY, WHITE);
 
-    filledRectHeight = map(currVolumeMl, 0, maxVolumeMl, 0, CONTAINER_HEIGHT);
+    filledRectHeight = map(filledVolumeMl, 0, maxVolumeMl, 0, CONTAINER_HEIGHT);
   }
   else
   {
@@ -465,11 +465,11 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
   {
     fillStatusText = "START";
   }
-  else if (currVolumeMl < toFillVolumeMl)
+  else if (filledVolumeMl < toFillVolumeMl)
   {
     fillStatusText = "FILLING";
   }
-  else if (currVolumeMl >= toFillVolumeMl)
+  else if (filledVolumeMl >= toFillVolumeMl)
   {
     fillStatusText = "DONE";
   }
@@ -484,7 +484,7 @@ void displayDrawContainerFillingStatus(float currVolumeMl, float toFillVolumeMl,
   if (isFilling)
   {
     display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 2);
-    display.printf("%.1f/", currVolumeMl);
+    display.printf("%.1f/", filledVolumeMl);
 
     display.setCursor(CONTAINER_TEXT_START_X, CONTAINER_START_Y + CONTAINER_HEIGHT + 12);
     display.printf("%.1fmL", toFillVolumeMl);
