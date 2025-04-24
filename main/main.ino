@@ -252,46 +252,9 @@ void loop()
 
   if (rfidReader.PICC_IsNewCardPresent() && rfidReader.PICC_ReadCardSerial())
   {
-    String content = "";
-    for (byte i = 0; i < rfidReader.uid.size; i++)
-    {
-      content += rfidReader.uid.uidByte[i] < 0x10 ? "0" : "";
-      content += String(rfidReader.uid.uidByte[i], HEX);
-    }
+    maxContainerVolumeMl = getContainerVolume(rfidReader.uid.uidByte, rfidReader.uid.size);
 
-    bool hasScanned;
-    if (content == "1d1181b8081080")
-    {
-      hasScanned = true;
-      maxContainerVolumeMl = 250.0;
-    }
-    else if (content == "1d1081b8081080")
-    {
-      hasScanned = true;
-      maxContainerVolumeMl = 500.0;
-    }
-    else if (content == "1d0f81b8081080")
-    {
-      hasScanned = true;
-      maxContainerVolumeMl = 1000.0;
-    }
-    else if (content == "1d0e81b8081080")
-    {
-      hasScanned = true;
-      maxContainerVolumeMl = 1500.0;
-    }
-    else if (content == "1d0d81b8081080")
-    {
-      hasScanned = true;
-      maxContainerVolumeMl = 2000.0;
-    }
-    else
-    {
-      hasScanned = false;
-      Serial.println(F("Unknown card"));
-    }
-
-    if (hasScanned)
+    if (maxContainerVolumeMl > 0)
     {
       hasContainer = true;
       filledContainerVolumeMl = 0.0;
@@ -301,33 +264,42 @@ void loop()
       valveIsOpen = false;
       valveNeedsUpdate = true;
     }
+    else
+    {
+      maxContainerVolumeMl = 0.0;
+
+      Serial.println(F("Unknown card"));
+    }
 
     rfidReader.PICC_HaltA();
     rfidReader.PCD_StopCrypto1();
   }
 
-  if ((valveNeedsUpdate || displayContainerFillingStatusNeedsUpdate) && hasContainer)
+  if (valveNeedsUpdate || displayContainerFillingStatusNeedsUpdate)
   {
-    displayContainerFillingStatusNeedsUpdate = false;
-    displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
-    displayNeedsUpdate = true;
-  }
-
-  if (valveNeedsUpdate)
-  {
-    valveNeedsUpdate = false;
-    valveUpdate(valveIsOpen);
-
-    if (!hasContainer)
+    if (hasContainer)
+    {
+      displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
+      displayNeedsUpdate = true;
+    }
+    else
     {
       displayDrawValve(valveIsOpen);
       displayNeedsUpdate = true;
     }
+
+    displayContainerFillingStatusNeedsUpdate = false;
+  }
+
+  if (valveNeedsUpdate)
+  {
+    valveUpdate(valveIsOpen);
+
+    valveNeedsUpdate = false;
   }
 
   if (displayNeedsUpdate)
   {
-    displayNeedsUpdate = false;
     display.display();
   }
 }
@@ -348,6 +320,30 @@ int getArrayMedian(int array[], int filterLen)
   {
     return (bTab[filterLen / 2] + bTab[filterLen / 2 - 1]) / 2;
   }
+}
+
+float getContainerVolume(byte *uid, size_t uidSize)
+{
+  const byte knownUIDs[][10] = {
+      {0x1D, 0x11, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
+      {0x1D, 0x10, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
+      {0x1D, 0x0F, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
+      {0x1D, 0x0E, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
+      {0x1D, 0x0D, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
+  };
+  const float volumes[] = {250.0, 500.0, 1000.0, 1500.0, 2000.0};
+
+  size_t uidCount = sizeof(knownUIDs) / sizeof(knownUIDs[0]);
+
+  for (size_t i = 0; i < uidCount; i++)
+  {
+    if (memcmp(uid, knownUIDs[i], uidSize) == 0)
+    {
+      return volumes[i];
+    }
+  }
+
+  return -1;
 }
 
 void containerClearFilling()
@@ -398,7 +394,7 @@ void displayDrawWaterQuality(float tdsValue)
   display.setTextSize(2);
   display.setCursor(0, 49);
 
-  String waterQualityText;
+  const char *waterQualityText;
   if (tdsValue < 50)
   {
     waterQualityText = "IDEAL";
@@ -460,7 +456,7 @@ void displayDrawContainerFillingStatus(float filledVolumeMl, float toFillVolumeM
 
   display.setTextSize(1);
 
-  String fillStatusText;
+  const char *fillStatusText;
   if (!isFilling)
   {
     fillStatusText = "START";
