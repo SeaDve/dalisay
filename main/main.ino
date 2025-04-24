@@ -44,6 +44,7 @@ const char *WS_DATA_VALVE_IS_OPEN = "valveIsOpen";
 const char *WS_DATA_FILLED_CONTAINER_VOLUME_ML = "filledContainerVolumeMl";
 const char *WS_DATA_TO_FILL_CONTAINER_VOLUME_ML = "toFillContainerVolumeMl";
 const char *WS_DATA_MAX_CONTAINER_VOLUME_ML = "maxContainerVolumeMl";
+const char *WS_DATA_COST_PER_CUBIC_M = "costPerCubicM";
 
 const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
 
@@ -62,7 +63,7 @@ int tdsSensorBuffer[TDS_SENSOR_SAMPLE_COUNT];
 int tdsSensorCurrBufferIndex = 0;
 
 float flowRate = 0.0;
-float totalFlowMl = 0;
+float totalFlowMl = 0.0;
 
 float tdsValue = 0.0;
 
@@ -242,20 +243,28 @@ void onGetMaxContainerVolumeMl(AsyncWebServerRequest *request)
   request->send(200, "text/plain", String(maxContainerVolumeMl));
 }
 
+void onServerGetCostPerCubicM(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(costPerCubicM));
+}
+
 void onServerSetCostPerCubicM(AsyncWebServerRequest *request)
 {
   if (request->hasParam("value"))
   {
+    float prevCostPerCubicM = costPerCubicM;
+
     String cost = request->getParam("value")->value();
     costPerCubicM = cost.toFloat();
-    displayTotalFlowNeedsUpdate = true;
+
+    if (abs(costPerCubicM - prevCostPerCubicM) > __FLT_EPSILON__)
+    {
+      wsSend(WS_DATA_COST_PER_CUBIC_M, String(costPerCubicM));
+
+      displayTotalFlowNeedsUpdate = true;
+    }
   }
   request->send(200, "text/plain", "OK");
-}
-
-void onServerGetCostPerCubicM(AsyncWebServerRequest *request)
-{
-  request->send(200, "text/plain", String(costPerCubicM));
 }
 
 void onWsEvent(AsyncWebSocket *ws, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len)
@@ -302,9 +311,8 @@ void setupServer()
   server.on("/getFilledContainerVolumeMl", HTTP_GET, onGetFilledContainerVolumeMl);
   server.on("/getToFillContainerVolumeMl", HTTP_GET, onGetToFillContainerVolumeMl);
   server.on("/getMaxContainerVolumeMl", HTTP_GET, onGetMaxContainerVolumeMl);
-
-  server.on("/setCostPerCubicM", HTTP_GET, onServerSetCostPerCubicM);
   server.on("/getCostPerCubicM", HTTP_GET, onServerGetCostPerCubicM);
+  server.on("/setCostPerCubicM", HTTP_PUT, onServerSetCostPerCubicM);
 
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
