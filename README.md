@@ -14,7 +14,8 @@ DALISAY is an RFID-based smart water dispensing system that monitors and control
 
 ## ✅ Benefits
 - 💧 **Saves water and protects environment** through intelligent flow management
-- 🛡️ **Enhances public health** by ensuring water is safe from contaminants
 - 💸 **Helps save money** by increasing awareness of water consumption and cost
+- ⏱️ **Saves time** by automating the filling process
+- 🛡️ **Enhances public health** by ensuring water is safe from contaminants
 
 
