@@ -6,6 +6,7 @@
 #include <math.h>
 #include <MFRC522.h>
 #include <OneButton.h>
+#include <Preferences.h>
 #include <SPI.h>
 #include <Wire.h>
 
@@ -37,16 +38,18 @@ const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 const char *WIFI_SSID = "HUAWEI-2.4G-E75z";
 const char *WIFI_PASSWORD = "JgY5wBGt";
 
-const char *WS_DATA_FLOW_RATE = "flowRate";
-const char *WS_DATA_TOTAL_FLOW_ML = "totalFlowMl";
-const char *WS_DATA_TDS_VALUE = "tdsValue";
-const char *WS_DATA_VALVE_IS_OPEN = "valveIsOpen";
-const char *WS_DATA_FILLED_CONTAINER_VOLUME_ML = "filledContainerVolumeMl";
-const char *WS_DATA_TO_FILL_CONTAINER_VOLUME_ML = "toFillContainerVolumeMl";
-const char *WS_DATA_MAX_CONTAINER_VOLUME_ML = "maxContainerVolumeMl";
-const char *WS_DATA_COST_PER_CUBIC_M = "costPerCubicM";
+const char *KEY_FLOW_RATE = "flowRate";
+const char *KEY_TOTAL_FLOW_ML = "totalFlowMl";
+const char *KEY_TDS_VALUE = "tdsValue";
+const char *KEY_VALVE_IS_OPEN = "valveIsOpen";
+const char *KEY_FILLED_CONTAINER_VOLUME_ML = "filledContainerVolumeMl";
+const char *KEY_TO_FILL_CONTAINER_VOLUME_ML = "toFillContainerVolumeMl";
+const char *KEY_MAX_CONTAINER_VOLUME_ML = "maxContainerVolumeMl";
+const char *KEY_COST_PER_CUBIC_M = "costPerCubicM";
 
 const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
+
+Preferences prefs;
 
 OneButton selectButton(27, true, true);
 OneButton upButton(14, true, true);
@@ -63,7 +66,7 @@ int tdsSensorBuffer[TDS_SENSOR_SAMPLE_COUNT];
 int tdsSensorCurrBufferIndex = 0;
 
 float flowRate = 0.0;
-float totalFlowMl = 0.0;
+float totalFlowMl;
 
 float tdsValue = 0.0;
 
@@ -81,7 +84,7 @@ bool filledContainerVolumeNeedsUpdate = false;
 bool toFillContainerVolumeNeedsUpdate = false;
 bool maxContainerVolumeNeedsUpdate = false;
 
-float costPerCubicM = 36.24;
+float costPerCubicM;
 
 void IRAM_ATTR onFlowSensorInterrupt()
 {
@@ -117,6 +120,11 @@ void onSelectButtonDoubleClicked()
   }
 }
 
+void onSelectButtonLongPressStopped()
+{
+  prefs.clear();
+}
+
 void onUpButtonClicked()
 {
   if (maxContainerVolumeMl > 0.0 && !valveIsOpen)
@@ -149,6 +157,8 @@ void setup()
 {
   setupSerial();
 
+  setupPrefs();
+
   pinMode(TDS_SENSOR_PIN, INPUT);
 
   pinMode(FLOW_SENSOR_PIN, INPUT_PULLUP);
@@ -156,6 +166,7 @@ void setup()
 
   selectButton.attachClick(onSelectButtonClicked);
   selectButton.attachDoubleClick(onSelectButtonDoubleClicked);
+  selectButton.attachLongPressStop(onSelectButtonLongPressStopped);
   upButton.attachClick(onUpButtonClicked);
   downButton.attachClick(onDownButtonClicked);
 
@@ -176,6 +187,17 @@ void setupSerial()
     ;
 
   Serial.println(F("Serial initialized"));
+}
+
+void setupPrefs()
+{
+  if (!prefs.begin("dalisay", false))
+  {
+    Serial.println(F("Failed to initialize preferences"));
+  }
+
+  totalFlowMl = prefs.getFloat(KEY_TOTAL_FLOW_ML, 0.0);
+  costPerCubicM = prefs.getFloat(KEY_COST_PER_CUBIC_M, 36.24);
 }
 
 void setupRfidReader()
@@ -259,10 +281,12 @@ void onServerSetCostPerCubicM(AsyncWebServerRequest *request)
 
     if (abs(costPerCubicM - prevCostPerCubicM) > __FLT_EPSILON__)
     {
-      wsSend(WS_DATA_COST_PER_CUBIC_M, String(costPerCubicM));
+      wsSend(KEY_COST_PER_CUBIC_M, String(costPerCubicM));
 
       displayTotalFlowNeedsUpdate = true;
     }
+
+    prefs.putFloat(KEY_COST_PER_CUBIC_M, costPerCubicM);
   }
   request->send(200, "text/plain", "OK");
 }
@@ -377,14 +401,16 @@ void loop()
     {
       displayTotalFlowNeedsUpdate = true;
 
-      wsSend(WS_DATA_TOTAL_FLOW_ML, String(totalFlowMl));
+      wsSend(KEY_TOTAL_FLOW_ML, String(totalFlowMl));
+
+      prefs.putFloat(KEY_TOTAL_FLOW_ML, totalFlowMl);
 
       prevTotalFlowMl = totalFlowMl;
     }
 
     if (abs(flowRate - prevFlowRate) > __FLT_EPSILON__)
     {
-      wsSend(WS_DATA_FLOW_RATE, String(flowRate));
+      wsSend(KEY_FLOW_RATE, String(flowRate));
 
       prevFlowRate = flowRate;
     }
@@ -414,7 +440,7 @@ void loop()
 
     if (abs(tdsValue - prevTdsValue) > __FLT_EPSILON__)
     {
-      wsSend(WS_DATA_TDS_VALUE, String(tdsValue));
+      wsSend(KEY_TDS_VALUE, String(tdsValue));
 
       displayDrawWaterQuality(tdsValue);
       displayNeedsUpdate = true;
@@ -475,26 +501,26 @@ void loop()
 
   if (filledContainerVolumeNeedsUpdate)
   {
-    wsSend(WS_DATA_FILLED_CONTAINER_VOLUME_ML, String(filledContainerVolumeMl));
+    wsSend(KEY_FILLED_CONTAINER_VOLUME_ML, String(filledContainerVolumeMl));
     filledContainerVolumeNeedsUpdate = false;
   }
 
   if (toFillContainerVolumeNeedsUpdate)
   {
-    wsSend(WS_DATA_TO_FILL_CONTAINER_VOLUME_ML, String(toFillContainerVolumeMl));
+    wsSend(KEY_TO_FILL_CONTAINER_VOLUME_ML, String(toFillContainerVolumeMl));
     toFillContainerVolumeNeedsUpdate = false;
   }
 
   if (maxContainerVolumeNeedsUpdate)
   {
-    wsSend(WS_DATA_MAX_CONTAINER_VOLUME_ML, String(maxContainerVolumeMl));
+    wsSend(KEY_MAX_CONTAINER_VOLUME_ML, String(maxContainerVolumeMl));
     maxContainerVolumeNeedsUpdate = false;
   }
 
   if (valveNeedsUpdate)
   {
     valveUpdate(valveIsOpen);
-    wsSend(WS_DATA_VALVE_IS_OPEN, String(valveIsOpen));
+    wsSend(KEY_VALVE_IS_OPEN, String(valveIsOpen));
     valveNeedsUpdate = false;
   }
 
