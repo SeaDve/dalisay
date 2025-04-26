@@ -123,7 +123,7 @@ void onSelectButtonDoubleClicked()
   }
 }
 
-void onSelectButtonLongPressStopped()
+void onSelectButtonLongPressStarted()
 {
   prefs.clear();
 
@@ -172,7 +172,7 @@ void setup()
 
   selectButton.attachClick(onSelectButtonClicked);
   selectButton.attachDoubleClick(onSelectButtonDoubleClicked);
-  selectButton.attachLongPressStop(onSelectButtonLongPressStopped);
+  selectButton.attachLongPressStart(onSelectButtonLongPressStarted);
   upButton.attachClick(onUpButtonClicked);
   downButton.attachClick(onDownButtonClicked);
 
