@@ -23,6 +23,7 @@ const unsigned long TDS_SENSOR_UPDATE_INTERVAL_MS = 800;
 
 const byte RFID_READER_SS_PIN = 5;
 const byte RFID_READER_RST_PIN = 0;
+const size_t RFID_READER_UID_SIZE = 10;
 
 const uint8_t VALVE_PIN = 2; // FIXME Change to proper relay module pin
 
@@ -46,9 +47,30 @@ const char *KEY_FILLED_CONTAINER_VOLUME_ML = "filledContainerVolumeMl";
 const char *KEY_TO_FILL_CONTAINER_VOLUME_ML = "toFillContainerVolumeMl";
 const char *KEY_MAX_CONTAINER_VOLUME_ML = "maxContainerVolumeMl";
 const char *KEY_COST_PER_CUBIC_M = "costPerCubicM";
+const char *KEY_CARD_0_UID = "card0Uid";
+const char *KEY_CARD_1_UID = "card1Uid";
+const char *KEY_CARD_2_UID = "card2Uid";
+const char *KEY_CARD_3_UID = "card3Uid";
+const char *KEY_CARD_4_UID = "card4Uid";
+const char *KEY_CARD_0_VOLUME_ML = "card0VolumeMl";
+const char *KEY_CARD_1_VOLUME_ML = "card1VolumeMl";
+const char *KEY_CARD_2_VOLUME_ML = "card2VolumeMl";
+const char *KEY_CARD_3_VOLUME_ML = "card3VolumeMl";
+const char *KEY_CARD_4_VOLUME_ML = "card4VolumeMl";
 
 const float DEFAULT_TOTAL_FLOW_ML = 0.0;
 const float DEFAULT_COST_PER_CUBIC_M = 36.24;
+
+const byte DEFAULT_CARD_0_UID[RFID_READER_UID_SIZE] = {0x1D, 0x11, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00};
+const byte DEFAULT_CARD_1_UID[RFID_READER_UID_SIZE] = {0x1D, 0x0F, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00};
+const byte DEFAULT_CARD_2_UID[RFID_READER_UID_SIZE] = {0x1D, 0x10, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00};
+const byte DEFAULT_CARD_3_UID[RFID_READER_UID_SIZE] = {0x1D, 0x0E, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00};
+const byte DEFAULT_CARD_4_UID[RFID_READER_UID_SIZE] = {0x1D, 0x0D, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00};
+const float DEFAULT_CARD_0_VOLUME_ML = 250.0;
+const float DEFAULT_CARD_1_VOLUME_ML = 500.0;
+const float DEFAULT_CARD_2_VOLUME_ML = 1000.0;
+const float DEFAULT_CARD_3_VOLUME_ML = 1500.0;
+const float DEFAULT_CARD_4_VOLUME_ML = 2000.0;
 
 const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
 
@@ -88,6 +110,17 @@ bool toFillContainerVolumeNeedsUpdate = false;
 bool maxContainerVolumeNeedsUpdate = false;
 
 float costPerCubicM;
+
+byte card0Uid[RFID_READER_UID_SIZE];
+byte card1Uid[RFID_READER_UID_SIZE];
+byte card2Uid[RFID_READER_UID_SIZE];
+byte card3Uid[RFID_READER_UID_SIZE];
+byte card4Uid[RFID_READER_UID_SIZE];
+float card0VolumeMl;
+float card1VolumeMl;
+float card2VolumeMl;
+float card3VolumeMl;
+float card4VolumeMl;
 
 void IRAM_ATTR onFlowSensorInterrupt()
 {
@@ -129,6 +162,18 @@ void onSelectButtonLongPressStarted()
 
   updateTotalFlowMl(DEFAULT_TOTAL_FLOW_ML);
   updateCostPerCubicM(DEFAULT_COST_PER_CUBIC_M);
+
+  updateCardUid(0, (byte *)DEFAULT_CARD_0_UID, RFID_READER_UID_SIZE);
+  updateCardUid(1, (byte *)DEFAULT_CARD_1_UID, RFID_READER_UID_SIZE);
+  updateCardUid(2, (byte *)DEFAULT_CARD_2_UID, RFID_READER_UID_SIZE);
+  updateCardUid(3, (byte *)DEFAULT_CARD_3_UID, RFID_READER_UID_SIZE);
+  updateCardUid(4, (byte *)DEFAULT_CARD_4_UID, RFID_READER_UID_SIZE);
+
+  updateCardVolume(0, DEFAULT_CARD_0_VOLUME_ML);
+  updateCardVolume(1, DEFAULT_CARD_1_VOLUME_ML);
+  updateCardVolume(2, DEFAULT_CARD_2_VOLUME_ML);
+  updateCardVolume(3, DEFAULT_CARD_3_VOLUME_ML);
+  updateCardVolume(4, DEFAULT_CARD_4_VOLUME_ML);
 }
 
 void onUpButtonClicked()
@@ -204,6 +249,23 @@ void setupPrefs()
 
   totalFlowMl = prefs.getFloat(KEY_TOTAL_FLOW_ML, DEFAULT_TOTAL_FLOW_ML);
   costPerCubicM = prefs.getFloat(KEY_COST_PER_CUBIC_M, DEFAULT_COST_PER_CUBIC_M);
+
+  memcpy(card0Uid, DEFAULT_CARD_0_UID, RFID_READER_UID_SIZE);
+  memcpy(card1Uid, DEFAULT_CARD_1_UID, RFID_READER_UID_SIZE);
+  memcpy(card2Uid, DEFAULT_CARD_2_UID, RFID_READER_UID_SIZE);
+  memcpy(card3Uid, DEFAULT_CARD_3_UID, RFID_READER_UID_SIZE);
+  memcpy(card4Uid, DEFAULT_CARD_4_UID, RFID_READER_UID_SIZE);
+  prefs.getBytes(KEY_CARD_0_UID, card0Uid, RFID_READER_UID_SIZE);
+  prefs.getBytes(KEY_CARD_1_UID, card1Uid, RFID_READER_UID_SIZE);
+  prefs.getBytes(KEY_CARD_2_UID, card2Uid, RFID_READER_UID_SIZE);
+  prefs.getBytes(KEY_CARD_3_UID, card3Uid, RFID_READER_UID_SIZE);
+  prefs.getBytes(KEY_CARD_4_UID, card4Uid, RFID_READER_UID_SIZE);
+
+  card0VolumeMl = prefs.getFloat(KEY_CARD_0_VOLUME_ML, DEFAULT_CARD_0_VOLUME_ML);
+  card1VolumeMl = prefs.getFloat(KEY_CARD_1_VOLUME_ML, DEFAULT_CARD_1_VOLUME_ML);
+  card2VolumeMl = prefs.getFloat(KEY_CARD_2_VOLUME_ML, DEFAULT_CARD_2_VOLUME_ML);
+  card3VolumeMl = prefs.getFloat(KEY_CARD_3_VOLUME_ML, DEFAULT_CARD_3_VOLUME_ML);
+  card4VolumeMl = prefs.getFloat(KEY_CARD_4_VOLUME_ML, DEFAULT_CARD_4_VOLUME_ML);
 }
 
 void setupRfidReader()
@@ -278,12 +340,94 @@ void onServerGetCostPerCubicM(AsyncWebServerRequest *request)
 
 void onServerSetCostPerCubicM(AsyncWebServerRequest *request)
 {
-  if (request->hasParam("value"))
+  if (!request->hasParam("value"))
   {
-    String rawCost = request->getParam("value")->value();
-    updateCostPerCubicM(rawCost.toFloat());
+    request->send(400, "text/plain", "Missing value parameter");
+    return;
   }
+
+  String rawCost = request->getParam("value")->value();
+  updateCostPerCubicM(rawCost.toFloat());
+
   request->send(200, "text/plain", "OK");
+}
+
+void onServerGetCards(AsyncWebServerRequest *request)
+{
+  String content = "";
+
+  content += cardUidToString(card0Uid, RFID_READER_UID_SIZE);
+  content += ":";
+  content += card0VolumeMl;
+
+  content += ",";
+
+  content += cardUidToString(card1Uid, RFID_READER_UID_SIZE);
+  content += ":";
+  content += card1VolumeMl;
+
+  content += ",";
+
+  content += cardUidToString(card2Uid, RFID_READER_UID_SIZE);
+  content += ":";
+  content += card2VolumeMl;
+
+  content += ",";
+
+  content += cardUidToString(card3Uid, RFID_READER_UID_SIZE);
+  content += ":";
+  content += card3VolumeMl;
+
+  content += ",";
+
+  content += cardUidToString(card4Uid, RFID_READER_UID_SIZE);
+  content += ":";
+  content += card4VolumeMl;
+
+  request->send(200, "text/plain", content);
+}
+
+void onServerSetCard(AsyncWebServerRequest *request)
+{
+  if (!request->hasParam("index"))
+  {
+    request->send(400, "text/plain", "Missing index parameter");
+    return;
+  }
+
+  int index = request->getParam("index")->value().toInt();
+
+  if (request->hasParam("uid"))
+  {
+    String rawUid = request->getParam("uid")->value();
+
+    byte uid[RFID_READER_UID_SIZE];
+    if (!cardUidFromString(rawUid, uid, RFID_READER_UID_SIZE))
+    {
+      request->send(400, "text/plain", "Invalid UID format");
+      return;
+    }
+
+    if (updateCardUid(index, uid, RFID_READER_UID_SIZE) != 0)
+    {
+      request->send(400, "text/plain", "Invalid index");
+      return;
+    }
+  }
+
+  if (request->hasParam("volume"))
+  {
+
+    float volume = request->getParam("volume")->value().toFloat();
+
+    if (updateCardVolume(index, volume) != 0)
+    {
+      request->send(400, "text/plain", "Invalid index");
+      return;
+    }
+
+    request->send(200, "text/plain", "OK");
+  }
 }
 
 void onWsEvent(AsyncWebSocket *ws, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len)
@@ -332,6 +476,8 @@ void setupServer()
   server.on("/getMaxContainerVolumeMl", HTTP_GET, onGetMaxContainerVolumeMl);
   server.on("/getCostPerCubicM", HTTP_GET, onServerGetCostPerCubicM);
   server.on("/setCostPerCubicM", HTTP_GET, onServerSetCostPerCubicM);
+  server.on("/getCards", HTTP_GET, onServerGetCards);
+  server.on("/setCard", HTTP_GET, onServerSetCard);
 
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
@@ -519,26 +665,57 @@ int getArrayMedian(int array[], int filterLen)
 
 float getContainerVolume(byte *uid, size_t uidSize)
 {
-  const byte knownUIDs[][10] = {
-      {0x1D, 0x11, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
-      {0x1D, 0x10, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
-      {0x1D, 0x0F, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
-      {0x1D, 0x0E, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
-      {0x1D, 0x0D, 0x81, 0xB8, 0x08, 0x10, 0x80, 0x00, 0x00, 0x00},
-  };
-  const float volumes[] = {250.0, 500.0, 1000.0, 1500.0, 2000.0};
-
-  size_t uidCount = sizeof(knownUIDs) / sizeof(knownUIDs[0]);
-
-  for (size_t i = 0; i < uidCount; i++)
+  if (memcmp(uid, card0Uid, uidSize) == 0)
   {
-    if (memcmp(uid, knownUIDs[i], uidSize) == 0)
-    {
-      return volumes[i];
-    }
+    return card0VolumeMl;
+  }
+  else if (memcmp(uid, card1Uid, uidSize) == 0)
+  {
+    return card1VolumeMl;
+  }
+  else if (memcmp(uid, card2Uid, uidSize) == 0)
+  {
+    return card2VolumeMl;
+  }
+  else if (memcmp(uid, card3Uid, uidSize) == 0)
+  {
+    return card3VolumeMl;
+  }
+  else if (memcmp(uid, card4Uid, uidSize) == 0)
+  {
+    return card4VolumeMl;
+  }
+  else
+  {
+    return -1;
+  }
+}
+
+String cardUidToString(byte *uid, size_t uidSize)
+{
+  String uidStr = "";
+  for (size_t i = 0; i < uidSize; i++)
+  {
+    uidStr += uid[i] < 0x10 ? "0" : "";
+    uidStr += String(uid[i], HEX);
+  }
+  return uidStr;
+}
+
+bool cardUidFromString(String uidStr, byte *uid, size_t uidSize)
+{
+  if (uidStr.length() != uidSize * 2)
+  {
+    return false;
   }
 
-  return -1;
+  for (size_t i = 0; i < uidSize; i++)
+  {
+    String byteStr = uidStr.substring(i * 2, i * 2 + 2);
+    uid[i] = (byte)strtol(byteStr.c_str(), NULL, 16);
+  }
+
+  return true;
 }
 
 void wsSend(const char *dataType, String data)
@@ -722,9 +899,9 @@ void updateTotalFlowMl(float value)
   {
     totalFlowMl = value;
 
-    wsSend(KEY_TOTAL_FLOW_ML, String(value));
-
     prefs.putFloat(KEY_TOTAL_FLOW_ML, value);
+
+    wsSend(KEY_TOTAL_FLOW_ML, String(value));
 
     displayTotalFlowNeedsUpdate = true;
   }
@@ -749,10 +926,96 @@ void updateCostPerCubicM(float value)
   {
     costPerCubicM = value;
 
-    wsSend(KEY_COST_PER_CUBIC_M, String(value));
-
     prefs.putFloat(KEY_COST_PER_CUBIC_M, value);
 
+    wsSend(KEY_COST_PER_CUBIC_M, String(value));
+
     displayTotalFlowNeedsUpdate = true;
+  }
+}
+
+int updateCardUid(int index, byte *uid, size_t uidSize)
+{
+  if (index == 0)
+  {
+    memcpy(card0Uid, uid, uidSize);
+    prefs.putBytes(KEY_CARD_0_UID, uid, uidSize);
+    wsSend(KEY_CARD_0_UID, cardUidToString(card0Uid, uidSize));
+    return 0;
+  }
+  else if (index == 1)
+  {
+    memcpy(card1Uid, uid, uidSize);
+    prefs.putBytes(KEY_CARD_1_UID, uid, uidSize);
+    wsSend(KEY_CARD_1_UID, cardUidToString(card1Uid, uidSize));
+    return 0;
+  }
+  else if (index == 2)
+  {
+    memcpy(card2Uid, uid, uidSize);
+    prefs.putBytes(KEY_CARD_2_UID, uid, uidSize);
+    wsSend(KEY_CARD_2_UID, cardUidToString(card2Uid, uidSize));
+    return 0;
+  }
+  else if (index == 3)
+  {
+    memcpy(card3Uid, uid, uidSize);
+    prefs.putBytes(KEY_CARD_3_UID, uid, uidSize);
+    wsSend(KEY_CARD_3_UID, cardUidToString(card3Uid, uidSize));
+    return 0;
+  }
+  else if (index == 4)
+  {
+    memcpy(card4Uid, uid, uidSize);
+    prefs.putBytes(KEY_CARD_4_UID, uid, uidSize);
+    wsSend(KEY_CARD_4_UID, cardUidToString(card4Uid, uidSize));
+    return 0;
+  }
+  else
+  {
+    return -1;
+  }
+}
+
+int updateCardVolume(int index, float volume)
+{
+  if (index == 0)
+  {
+    card0VolumeMl = volume;
+    prefs.putFloat(KEY_CARD_0_VOLUME_ML, volume);
+    wsSend(KEY_CARD_0_VOLUME_ML, String(volume));
+    return 0;
+  }
+  else if (index == 1)
+  {
+    card1VolumeMl = volume;
+    prefs.putFloat(KEY_CARD_1_VOLUME_ML, volume);
+    wsSend(KEY_CARD_1_VOLUME_ML, String(volume));
+    return 0;
+  }
+  else if (index == 2)
+  {
+    card2VolumeMl = volume;
+    prefs.putFloat(KEY_CARD_2_VOLUME_ML, volume);
+    wsSend(KEY_CARD_2_VOLUME_ML, String(volume));
+    return 0;
+  }
+  else if (index == 3)
+  {
+    card3VolumeMl = volume;
+    prefs.putFloat(KEY_CARD_3_VOLUME_ML, volume);
+    wsSend(KEY_CARD_3_VOLUME_ML, String(volume));
+    return 0;
+  }
+  else if (index == 4)
+  {
+    card4VolumeMl = volume;
+    prefs.putFloat(KEY_CARD_4_VOLUME_ML, volume);
+    wsSend(KEY_CARD_4_VOLUME_ML, String(volume));
+    return 0;
+  }
+  else
+  {
+    return -1;
   }
 }
