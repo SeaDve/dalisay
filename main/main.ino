@@ -47,6 +47,9 @@ const char *KEY_TO_FILL_CONTAINER_VOLUME_ML = "toFillContainerVolumeMl";
 const char *KEY_MAX_CONTAINER_VOLUME_ML = "maxContainerVolumeMl";
 const char *KEY_COST_PER_CUBIC_M = "costPerCubicM";
 
+const float DEFAULT_TOTAL_FLOW_ML = 0.0;
+const float DEFAULT_COST_PER_CUBIC_M = 36.24;
+
 const float TO_FILL_CONTAINER_VOLUME_ADJUST_STEP = 0.1;
 
 Preferences prefs;
@@ -123,6 +126,9 @@ void onSelectButtonDoubleClicked()
 void onSelectButtonLongPressStopped()
 {
   prefs.clear();
+
+  updateTotalFlowMl(DEFAULT_TOTAL_FLOW_ML);
+  updateCostPerCubicM(DEFAULT_COST_PER_CUBIC_M);
 }
 
 void onUpButtonClicked()
@@ -196,8 +202,8 @@ void setupPrefs()
     Serial.println(F("Failed to initialize preferences"));
   }
 
-  totalFlowMl = prefs.getFloat(KEY_TOTAL_FLOW_ML, 0.0);
-  costPerCubicM = prefs.getFloat(KEY_COST_PER_CUBIC_M, 36.24);
+  totalFlowMl = prefs.getFloat(KEY_TOTAL_FLOW_ML, DEFAULT_TOTAL_FLOW_ML);
+  costPerCubicM = prefs.getFloat(KEY_COST_PER_CUBIC_M, DEFAULT_COST_PER_CUBIC_M);
 }
 
 void setupRfidReader()
@@ -274,19 +280,8 @@ void onServerSetCostPerCubicM(AsyncWebServerRequest *request)
 {
   if (request->hasParam("value"))
   {
-    float prevCostPerCubicM = costPerCubicM;
-
-    String cost = request->getParam("value")->value();
-    costPerCubicM = cost.toFloat();
-
-    if (abs(costPerCubicM - prevCostPerCubicM) > __FLT_EPSILON__)
-    {
-      wsSend(KEY_COST_PER_CUBIC_M, String(costPerCubicM));
-
-      displayTotalFlowNeedsUpdate = true;
-    }
-
-    prefs.putFloat(KEY_COST_PER_CUBIC_M, costPerCubicM);
+    String rawCost = request->getParam("value")->value();
+    updateCostPerCubicM(rawCost.toFloat());
   }
   request->send(200, "text/plain", "OK");
 }
@@ -349,11 +344,6 @@ unsigned long flowSensorPrevTimestamp = millis();
 unsigned long tdsSensorPrevSampleTimestamp = millis();
 unsigned long tdsSensorPrevPrintTimestamp = millis();
 
-float prevFlowRate = 0.0;
-float prevTotalFlowMl = 0.0;
-float prevTdsValue = 0.0;
-float prevFilledContainerVolumeMl = 0.0;
-
 void loop()
 {
   ws.cleanupClients();
@@ -375,15 +365,16 @@ void loop()
     // that to scale the output. We also apply the calibrationFactor to scale the output
     // based on the number of pulses per second per units of measure (litres/minute in
     // this case) coming from the sensor.
-    flowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
+    float newFlowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
     flowSensorPrevTimestamp = currMs;
 
     // Divide the flow rate in L/min by 60 to get water flow per second, then multiply by 1000 to convert to mL.
     float flowMl = (flowRate / 60) * 1000;
-    totalFlowMl += flowMl;
+    float newTotalFlowMl = totalFlowMl + flowMl;
 
     if (maxContainerVolumeMl > 0.0)
     {
+      float prevFilledContainerVolumeMl = filledContainerVolumeMl;
       filledContainerVolumeMl += flowMl;
 
       if (abs(filledContainerVolumeMl - prevFilledContainerVolumeMl) > __FLT_EPSILON__)
@@ -397,23 +388,8 @@ void loop()
       }
     }
 
-    if (abs(totalFlowMl - prevTotalFlowMl) > __FLT_EPSILON__)
-    {
-      displayTotalFlowNeedsUpdate = true;
-
-      wsSend(KEY_TOTAL_FLOW_ML, String(totalFlowMl));
-
-      prefs.putFloat(KEY_TOTAL_FLOW_ML, totalFlowMl);
-
-      prevTotalFlowMl = totalFlowMl;
-    }
-
-    if (abs(flowRate - prevFlowRate) > __FLT_EPSILON__)
-    {
-      wsSend(KEY_FLOW_RATE, String(flowRate));
-
-      prevFlowRate = flowRate;
-    }
+    updateFlowRate(newFlowRate);
+    updateTotalFlowMl(newTotalFlowMl);
   }
 
   if (currMs - tdsSensorPrevSampleTimestamp > TDS_SENSOR_SAMPLE_INTERVAL_MS)
@@ -436,17 +412,9 @@ void loop()
 
     float compensationCoefficient = 1.0 + 0.02 * (TDS_SENSOR_AMBIENT_TEMP - 25.0);
     float compensationVoltage = averageVoltage / compensationCoefficient;
-    tdsValue = (133.42 * powf(compensationVoltage, 3) - 255.86 * powf(compensationVoltage, 2) + 857.39 * compensationVoltage) * 0.5;
+    float newTdsValue = (133.42 * powf(compensationVoltage, 3) - 255.86 * powf(compensationVoltage, 2) + 857.39 * compensationVoltage) * 0.5;
 
-    if (abs(tdsValue - prevTdsValue) > __FLT_EPSILON__)
-    {
-      wsSend(KEY_TDS_VALUE, String(tdsValue));
-
-      displayDrawWaterQuality(tdsValue);
-      displayNeedsUpdate = true;
-
-      prevTdsValue = tdsValue;
-    }
+    updateTdsValue(newTdsValue);
   }
 
   if (rfidReader.PICC_IsNewCardPresent() && rfidReader.PICC_ReadCardSerial())
@@ -735,5 +703,56 @@ void valveUpdate(bool isOpen)
   else
   {
     digitalWrite(VALVE_PIN, LOW);
+  }
+}
+
+void updateFlowRate(float value)
+{
+  if (abs(value - flowRate) > __FLT_EPSILON__)
+  {
+    flowRate = value;
+
+    wsSend(KEY_FLOW_RATE, String(value));
+  }
+}
+
+void updateTotalFlowMl(float value)
+{
+  if (abs(value - totalFlowMl) > __FLT_EPSILON__)
+  {
+    totalFlowMl = value;
+
+    wsSend(KEY_TOTAL_FLOW_ML, String(value));
+
+    prefs.putFloat(KEY_TOTAL_FLOW_ML, value);
+
+    displayTotalFlowNeedsUpdate = true;
+  }
+}
+
+void updateTdsValue(float value)
+{
+  if (abs(value - tdsValue) > __FLT_EPSILON__)
+  {
+    tdsValue = value;
+
+    wsSend(KEY_TDS_VALUE, String(value));
+
+    displayDrawWaterQuality(value);
+    displayNeedsUpdate = true;
+  }
+}
+
+void updateCostPerCubicM(float value)
+{
+  if (abs(value - costPerCubicM) > __FLT_EPSILON__)
+  {
+    costPerCubicM = value;
+
+    wsSend(KEY_COST_PER_CUBIC_M, String(value));
+
+    prefs.putFloat(KEY_COST_PER_CUBIC_M, value);
+
+    displayTotalFlowNeedsUpdate = true;
   }
 }
