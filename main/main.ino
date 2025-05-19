@@ -36,6 +36,8 @@ const int16_t CONTAINER_WIDTH = display.width() / 2 - 40;
 const int16_t CONTAINER_HEIGHT = display.height() - 30;
 const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 
+const unsigned long IP_ADDRESS_DISPLAY_DURATION_MS = 3000;
+
 const char *WIFI_SSID = "NETGEAR";
 const char *WIFI_PASSWORD = "244167003833";
 
@@ -244,6 +246,16 @@ void setup()
   setupDisplay();
 
   setupServer();
+
+  displayDrawIpAddress();
+  display.display();
+  delay(IP_ADDRESS_DISPLAY_DURATION_MS);
+
+  displayDrawTotalFlow(totalFlowMl, 0.0);
+  displayDrawWaterQuality(tdsValue);
+  displayDrawValve(valveIsOpen);
+  displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
+  displayNeedsUpdate = true;
 }
 
 void setupSerial()
@@ -304,12 +316,6 @@ void setupDisplay()
   display.clearDisplay();
   display.setTextColor(WHITE);
   display.setTextWrap(false);
-
-  displayDrawTotalFlow(totalFlowMl, 0.0);
-  displayDrawWaterQuality(tdsValue);
-  displayDrawValve(valveIsOpen);
-  displayDrawContainerFillingStatus(filledContainerVolumeMl, toFillContainerVolumeMl, maxContainerVolumeMl, valveIsOpen);
-  displayNeedsUpdate = true;
 
   Serial.println(F("Display initialized"));
 }
@@ -751,6 +757,17 @@ void containerStopFilling()
 
   valveIsOpen = false;
   valveNeedsUpdate = true;
+}
+
+void displayDrawIpAddress()
+{
+  display.setTextSize(1);
+
+  display.setCursor(0, 0);
+  display.println("IP Address:");
+
+  display.setCursor(0, 10);
+  display.printf("  %s\n", WiFi.localIP().toString().c_str());
 }
 
 void displayDrawTotalFlow(float totalMl, float totalCost)
