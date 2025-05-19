@@ -36,8 +36,8 @@ const int16_t CONTAINER_WIDTH = display.width() / 2 - 40;
 const int16_t CONTAINER_HEIGHT = display.height() - 30;
 const int16_t CONTAINER_TEXT_START_X = CONTAINER_START_X - 10;
 
-const char *WIFI_SSID = "HUAWEI-2.4G-E75z";
-const char *WIFI_PASSWORD = "JgY5wBGt";
+const char *WIFI_SSID = "NETGEAR";
+const char *WIFI_PASSWORD = "244167003833";
 
 const char *KEY_FLOW_RATE = "flowRate";
 const char *KEY_TOTAL_FLOW_ML = "totalFlowMl";
@@ -150,9 +150,25 @@ void onSelectButtonClicked()
 
 void onSelectButtonDoubleClicked()
 {
-  if (maxContainerVolumeMl > 0.0 && !valveIsOpen)
+  if (maxContainerVolumeMl > 0.0)
   {
-    containerClearFilling();
+    if (!valveIsOpen)
+    {
+      containerClearFilling();
+    }
+  }
+  else
+  {
+    maxContainerVolumeMl = 1500.0;
+    filledContainerVolumeMl = 0.0;
+    toFillContainerVolumeMl = maxContainerVolumeMl;
+
+    filledContainerVolumeNeedsUpdate = true;
+    toFillContainerVolumeNeedsUpdate = true;
+    maxContainerVolumeNeedsUpdate = true;
+
+    valveIsOpen = false;
+    valveNeedsUpdate = true;
   }
 }
 
@@ -454,15 +470,10 @@ void setupServer()
 
   Serial.print("Connecting to WiFi ..");
 
-  unsigned long prevMs = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
-    unsigned long currMs = millis();
-    if (currMs - prevMs >= 1000)
-    {
-      Serial.print('.');
-      prevMs = currMs;
-    }
+    Serial.print(".");
+    delay(100);
   }
 
   Serial.println(WiFi.localIP());
