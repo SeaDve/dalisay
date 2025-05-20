@@ -29,7 +29,7 @@ const uint8_t VALVE_PIN = 17;
 
 const uint8_t BUZZER_PIN = 16;
 
-const unsigned long BUZZER_SUCCESS_DURATION_MS = 100;
+const unsigned long BUZZER_SUCCESS_DURATION_MS = 120;
 const unsigned long BUZZER_ERROR_DURATION_MS = 500;
 
 Adafruit_SSD1306 display(128, 64, &Wire);
