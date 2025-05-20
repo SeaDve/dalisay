@@ -25,7 +25,12 @@ const byte RFID_READER_SS_PIN = 5;
 const byte RFID_READER_RST_PIN = 0;
 const size_t RFID_READER_UID_SIZE = 10;
 
-const uint8_t VALVE_PIN = 2; // FIXME Change to proper relay module pin
+const uint8_t VALVE_PIN = 17;
+
+const uint8_t BUZZER_PIN = 16;
+
+const unsigned long BUZZER_SUCCESS_DURATION_MS = 100;
+const unsigned long BUZZER_ERROR_DURATION_MS = 500;
 
 Adafruit_SSD1306 display(128, 64, &Wire);
 
@@ -471,7 +476,7 @@ void onWsEvent(AsyncWebSocket *ws, AsyncWebSocketClient *client, AwsEventType ty
 
 void setupServer()
 {
-  WiFi.mode(WIFI_AP);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to WiFi ..");
@@ -507,6 +512,10 @@ unsigned long flowSensorPrevTimestamp = millis();
 unsigned long tdsSensorPrevSampleTimestamp = millis();
 unsigned long tdsSensorPrevPrintTimestamp = millis();
 
+unsigned long buzzerStartTimestamp = 0;
+bool buzzerSuccessOn = false;
+bool buzzerErrorOn = false;
+
 void loop()
 {
   ws.cleanupClients();
@@ -516,6 +525,18 @@ void loop()
   selectButton.tick();
 
   unsigned long currMs = millis();
+
+  if (buzzerSuccessOn && currMs - buzzerStartTimestamp > BUZZER_SUCCESS_DURATION_MS)
+  {
+    noTone(BUZZER_PIN);
+    buzzerSuccessOn = false;
+  }
+
+  if (buzzerErrorOn && currMs - buzzerStartTimestamp > BUZZER_ERROR_DURATION_MS)
+  {
+    noTone(BUZZER_PIN);
+    buzzerErrorOn = false;
+  }
 
   if (currMs - flowSensorPrevTimestamp > FLOW_SENSOR_UPDATE_INTERVAL_MS)
   {
@@ -595,12 +616,18 @@ void loop()
 
       valveIsOpen = false;
       valveNeedsUpdate = true;
+
+      tone(BUZZER_PIN, 7000);
+      buzzerStartTimestamp = millis();
+      buzzerSuccessOn = true;
     }
     else
     {
       maxContainerVolumeMl = 0.0;
 
-      Serial.println(F("Unknown card"));
+      tone(BUZZER_PIN, 5000);
+      buzzerStartTimestamp = millis();
+      buzzerErrorOn = true;
     }
 
     rfidReader.PICC_HaltA();
