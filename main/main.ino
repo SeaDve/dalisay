@@ -11,7 +11,7 @@
 #include <Wire.h>
 
 const uint8_t FLOW_SENSOR_PIN = 33;
-const unsigned long FLOW_SENSOR_UPDATE_INTERVAL_MS = 1000;
+const unsigned long FLOW_SENSOR_UPDATE_INTERVAL_MS = 40;
 
 const uint8_t TDS_SENSOR_PIN = 32;
 const float TDS_SENSOR_VREF = 3.3;
@@ -45,8 +45,7 @@ const unsigned long IP_ADDRESS_DISPLAY_DURATION_MS = 3000;
 const char *WIFI_SSID = "NETGEAR";
 const char *WIFI_PASSWORD = "244167003833";
 
-const char *KEY_FLOW_SENSOR_CALIBRATION_FACTOR = "flowSensorCalibrationFactor";
-const char *KEY_FLOW_RATE = "flowRate";
+const char *KEY_FLOW_SENSOR_PULSE_PER_LITER = "flowSensorPulsePerLiter";
 const char *KEY_TOTAL_FLOW_ML = "totalFlowMl";
 const char *KEY_TDS_VALUE = "tdsValue";
 const char *KEY_VALVE_IS_OPEN = "valveIsOpen";
@@ -65,7 +64,7 @@ const char *KEY_CARD_2_VOLUME_ML = "card2VolumeMl";
 const char *KEY_CARD_3_VOLUME_ML = "card3VolumeMl";
 const char *KEY_CARD_4_VOLUME_ML = "card4VolumeMl";
 
-const float DEFAULT_FLOW_SENSOR_CALIBRATION_FACTOR = 2.25;
+const float DEFAULT_FLOW_SENSOR_PULSE_PER_LITER = 230.0;
 const float DEFAULT_TOTAL_FLOW_ML = 0.0;
 const float DEFAULT_COST_PER_CUBIC_M = 36.24;
 
@@ -98,9 +97,7 @@ volatile byte flowSensorCurrPulseCount = 0;
 int tdsSensorBuffer[TDS_SENSOR_SAMPLE_COUNT];
 int tdsSensorCurrBufferIndex = 0;
 
-float flowSensorCalibrationFactor;
-
-float flowRate = 0.0;
+float flowSensorPulsePerLiter;
 float totalFlowMl;
 
 float tdsValue = 0.0;
@@ -186,7 +183,7 @@ void onSelectButtonLongPressStarted()
 {
   prefs.clear();
 
-  updateFlowSensorCalibrationFactor(DEFAULT_FLOW_SENSOR_CALIBRATION_FACTOR);
+  updateFlowSensorPulsePerLiter(DEFAULT_FLOW_SENSOR_PULSE_PER_LITER);
   updateTotalFlowMl(DEFAULT_TOTAL_FLOW_ML);
   updateCostPerCubicM(DEFAULT_COST_PER_CUBIC_M);
 
@@ -251,6 +248,7 @@ void setup()
   setupRfidReader();
 
   pinMode(VALVE_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
 
   setupDisplay();
 
@@ -284,7 +282,7 @@ void setupPrefs()
     Serial.println(F("Failed to initialize preferences"));
   }
 
-  flowSensorCalibrationFactor = prefs.getFloat(KEY_FLOW_SENSOR_CALIBRATION_FACTOR, DEFAULT_FLOW_SENSOR_CALIBRATION_FACTOR);
+  flowSensorPulsePerLiter = prefs.getFloat(KEY_FLOW_SENSOR_PULSE_PER_LITER, DEFAULT_FLOW_SENSOR_PULSE_PER_LITER);
   totalFlowMl = prefs.getFloat(KEY_TOTAL_FLOW_ML, DEFAULT_TOTAL_FLOW_ML);
   costPerCubicM = prefs.getFloat(KEY_COST_PER_CUBIC_M, DEFAULT_COST_PER_CUBIC_M);
 
@@ -330,12 +328,12 @@ void setupDisplay()
   Serial.println(F("Display initialized"));
 }
 
-void onServerGetFlowSensorCalibrationFactor(AsyncWebServerRequest *request)
+void onServerGetFlowSensorPulsePerLiter(AsyncWebServerRequest *request)
 {
-  request->send(200, "text/plain", String(flowSensorCalibrationFactor));
+  request->send(200, "text/plain", String(flowSensorPulsePerLiter));
 }
 
-void onServerSetFlowSensorCalibrationFactor(AsyncWebServerRequest *request)
+void onServerSetFlowSensorPulsePerLiter(AsyncWebServerRequest *request)
 {
   if (!request->hasParam("value"))
   {
@@ -344,7 +342,7 @@ void onServerSetFlowSensorCalibrationFactor(AsyncWebServerRequest *request)
   }
 
   String rawValue = request->getParam("value")->value();
-  updateFlowSensorCalibrationFactor(rawValue.toFloat());
+  updateFlowSensorPulsePerLiter(rawValue.toFloat());
 
   request->send(200, "text/plain", "OK");
 }
@@ -362,11 +360,6 @@ void onGetTdsValue(AsyncWebServerRequest *request)
 void onGetValveIsOpen(AsyncWebServerRequest *request)
 {
   request->send(200, "text/plain", String(valveIsOpen));
-}
-
-void onGetFlowRate(AsyncWebServerRequest *request)
-{
-  request->send(200, "text/plain", String(flowRate));
 }
 
 void onGetFilledContainerVolumeMl(AsyncWebServerRequest *request)
@@ -513,9 +506,8 @@ void setupServer()
 
   Serial.println(WiFi.localIP());
 
-  server.on("/getFlowSensorCalibrationFactor", HTTP_GET, onServerGetFlowSensorCalibrationFactor);
-  server.on("/setFlowSensorCalibrationFactor", HTTP_GET, onServerSetFlowSensorCalibrationFactor);
-  server.on("/getFlowRate", HTTP_GET, onGetFlowRate);
+  server.on("/getFlowSensorPulsePerLiter", HTTP_GET, onServerGetFlowSensorPulsePerLiter);
+  server.on("/setFlowSensorPulsePerLiter", HTTP_GET, onServerSetFlowSensorPulsePerLiter);
   server.on("/getTotalFlowMl", HTTP_GET, onGetTotalFlowMl);
   server.on("/getTdsValue", HTTP_GET, onGetTdsValue);
   server.on("/getValveIsOpen", HTTP_GET, onGetValveIsOpen);
@@ -566,30 +558,24 @@ void loop()
 
   if (currMs - flowSensorPrevTimestamp > FLOW_SENSOR_UPDATE_INTERVAL_MS)
   {
+    flowSensorPrevTimestamp = currMs;
 
     byte pulseCount = flowSensorCurrPulseCount;
     flowSensorCurrPulseCount = 0;
 
-    // Because this loop may not complete in exactly 1 second intervals we calculate
-    // the number of milliseconds that have passed since the last execution and use
-    // that to scale the output. We also apply the calibrationFactor to scale the output
-    // based on the number of pulses per second per units of measure (litres/minute in
-    // this case) coming from the sensor.
-    float newFlowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / flowSensorCalibrationFactor;
-    flowSensorPrevTimestamp = currMs;
+    float deltaFlowL = pulseCount / flowSensorPulsePerLiter;
+    float deltaFlowMl = deltaFlowL * 1000;
 
-    // Divide the flow rate in L/min by 60 to get water flow per second, then multiply by 1000 to convert to mL.
-    float flowMl = (flowRate / 60) * 1000;
-    float newTotalFlowMl = totalFlowMl + flowMl;
+    float newTotalFlowMl = totalFlowMl + deltaFlowMl;
 
     if (maxContainerVolumeMl > 0.0)
     {
       float prevFilledContainerVolumeMl = filledContainerVolumeMl;
-      filledContainerVolumeMl += flowMl;
+      filledContainerVolumeMl += deltaFlowMl;
 
       if (abs(filledContainerVolumeMl - prevFilledContainerVolumeMl) > __FLT_EPSILON__)
       {
-        if (filledContainerVolumeMl > toFillContainerVolumeMl)
+        if (filledContainerVolumeMl >= toFillContainerVolumeMl)
         {
           containerStopFilling();
         }
@@ -598,7 +584,6 @@ void loop()
       }
     }
 
-    updateFlowRate(newFlowRate);
     updateTotalFlowMl(newTotalFlowMl);
   }
 
@@ -964,25 +949,15 @@ void valveUpdate(bool isOpen)
   }
 }
 
-void updateFlowSensorCalibrationFactor(float value)
+void updateFlowSensorPulsePerLiter(float value)
 {
-  if (abs(value - flowSensorCalibrationFactor) > __FLT_EPSILON__)
+  if (abs(value - flowSensorPulsePerLiter) > __FLT_EPSILON__)
   {
-    flowSensorCalibrationFactor = value;
+    flowSensorPulsePerLiter = value;
 
-    prefs.putFloat(KEY_FLOW_SENSOR_CALIBRATION_FACTOR, value);
+    prefs.putFloat(KEY_FLOW_SENSOR_PULSE_PER_LITER, value);
 
-    wsSend(KEY_FLOW_SENSOR_CALIBRATION_FACTOR, String(value));
-  }
-}
-
-void updateFlowRate(float value)
-{
-  if (abs(value - flowRate) > __FLT_EPSILON__)
-  {
-    flowRate = value;
-
-    wsSend(KEY_FLOW_RATE, String(value));
+    wsSend(KEY_FLOW_SENSOR_PULSE_PER_LITER, String(value));
   }
 }
 
