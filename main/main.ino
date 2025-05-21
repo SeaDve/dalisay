@@ -64,7 +64,7 @@ const char *KEY_CARD_2_VOLUME_ML = "card2VolumeMl";
 const char *KEY_CARD_3_VOLUME_ML = "card3VolumeMl";
 const char *KEY_CARD_4_VOLUME_ML = "card4VolumeMl";
 
-const float DEFAULT_FLOW_SENSOR_PULSE_PER_LITER = 230.0;
+const float DEFAULT_FLOW_SENSOR_PULSE_PER_LITER = 200.0;
 const float DEFAULT_TOTAL_FLOW_ML = 0.0;
 const float DEFAULT_COST_PER_CUBIC_M = 36.24;
 
