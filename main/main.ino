@@ -11,7 +11,7 @@
 #include <Wire.h>
 
 const uint8_t FLOW_SENSOR_PIN = 33;
-const unsigned long FLOW_SENSOR_UPDATE_INTERVAL_MS = 40;
+const unsigned long FLOW_SENSOR_UPDATE_INTERVAL_MS = 10;
 
 const uint8_t TDS_SENSOR_PIN = 32;
 const float TDS_SENSOR_VREF = 3.3;
@@ -560,8 +560,10 @@ void loop()
   {
     flowSensorPrevTimestamp = currMs;
 
+    noInterrupts();
     byte pulseCount = flowSensorCurrPulseCount;
     flowSensorCurrPulseCount = 0;
+    interrupts();
 
     float deltaFlowL = pulseCount / flowSensorPulsePerLiter;
     float deltaFlowMl = deltaFlowL * 1000;
