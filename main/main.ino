@@ -12,7 +12,6 @@
 
 const uint8_t FLOW_SENSOR_PIN = 33;
 const unsigned long FLOW_SENSOR_UPDATE_INTERVAL_MS = 1000;
-const float FLOW_SENSOR_CALIBRATION_FACTOR = 4.5; // TODO Do proper calibration
 
 const uint8_t TDS_SENSOR_PIN = 32;
 const float TDS_SENSOR_VREF = 3.3;
@@ -46,6 +45,7 @@ const unsigned long IP_ADDRESS_DISPLAY_DURATION_MS = 3000;
 const char *WIFI_SSID = "NETGEAR";
 const char *WIFI_PASSWORD = "244167003833";
 
+const char *KEY_FLOW_SENSOR_CALIBRATION_FACTOR = "flowSensorCalibrationFactor";
 const char *KEY_FLOW_RATE = "flowRate";
 const char *KEY_TOTAL_FLOW_ML = "totalFlowMl";
 const char *KEY_TDS_VALUE = "tdsValue";
@@ -65,6 +65,7 @@ const char *KEY_CARD_2_VOLUME_ML = "card2VolumeMl";
 const char *KEY_CARD_3_VOLUME_ML = "card3VolumeMl";
 const char *KEY_CARD_4_VOLUME_ML = "card4VolumeMl";
 
+const float DEFAULT_FLOW_SENSOR_CALIBRATION_FACTOR = 2.25;
 const float DEFAULT_TOTAL_FLOW_ML = 0.0;
 const float DEFAULT_COST_PER_CUBIC_M = 36.24;
 
@@ -96,6 +97,8 @@ volatile byte flowSensorCurrPulseCount = 0;
 
 int tdsSensorBuffer[TDS_SENSOR_SAMPLE_COUNT];
 int tdsSensorCurrBufferIndex = 0;
+
+float flowSensorCalibrationFactor;
 
 float flowRate = 0.0;
 float totalFlowMl;
@@ -183,6 +186,7 @@ void onSelectButtonLongPressStarted()
 {
   prefs.clear();
 
+  updateFlowSensorCalibrationFactor(DEFAULT_FLOW_SENSOR_CALIBRATION_FACTOR);
   updateTotalFlowMl(DEFAULT_TOTAL_FLOW_ML);
   updateCostPerCubicM(DEFAULT_COST_PER_CUBIC_M);
 
@@ -280,6 +284,7 @@ void setupPrefs()
     Serial.println(F("Failed to initialize preferences"));
   }
 
+  flowSensorCalibrationFactor = prefs.getFloat(KEY_FLOW_SENSOR_CALIBRATION_FACTOR, DEFAULT_FLOW_SENSOR_CALIBRATION_FACTOR);
   totalFlowMl = prefs.getFloat(KEY_TOTAL_FLOW_ML, DEFAULT_TOTAL_FLOW_ML);
   costPerCubicM = prefs.getFloat(KEY_COST_PER_CUBIC_M, DEFAULT_COST_PER_CUBIC_M);
 
@@ -323,6 +328,25 @@ void setupDisplay()
   display.setTextWrap(false);
 
   Serial.println(F("Display initialized"));
+}
+
+void onServerGetFlowSensorCalibrationFactor(AsyncWebServerRequest *request)
+{
+  request->send(200, "text/plain", String(flowSensorCalibrationFactor));
+}
+
+void onServerSetFlowSensorCalibrationFactor(AsyncWebServerRequest *request)
+{
+  if (!request->hasParam("value"))
+  {
+    request->send(400, "text/plain", "Missing value parameter");
+    return;
+  }
+
+  String rawValue = request->getParam("value")->value();
+  updateFlowSensorCalibrationFactor(rawValue.toFloat());
+
+  request->send(200, "text/plain", "OK");
 }
 
 void onGetTotalFlowMl(AsyncWebServerRequest *request)
@@ -373,8 +397,8 @@ void onServerSetCostPerCubicM(AsyncWebServerRequest *request)
     return;
   }
 
-  String rawCost = request->getParam("value")->value();
-  updateCostPerCubicM(rawCost.toFloat());
+  String rawValue = request->getParam("value")->value();
+  updateCostPerCubicM(rawValue.toFloat());
 
   request->send(200, "text/plain", "OK");
 }
@@ -489,6 +513,8 @@ void setupServer()
 
   Serial.println(WiFi.localIP());
 
+  server.on("/getFlowSensorCalibrationFactor", HTTP_GET, onServerGetFlowSensorCalibrationFactor);
+  server.on("/setFlowSensorCalibrationFactor", HTTP_GET, onServerSetFlowSensorCalibrationFactor);
   server.on("/getFlowRate", HTTP_GET, onGetFlowRate);
   server.on("/getTotalFlowMl", HTTP_GET, onGetTotalFlowMl);
   server.on("/getTdsValue", HTTP_GET, onGetTdsValue);
@@ -549,7 +575,7 @@ void loop()
     // that to scale the output. We also apply the calibrationFactor to scale the output
     // based on the number of pulses per second per units of measure (litres/minute in
     // this case) coming from the sensor.
-    float newFlowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / FLOW_SENSOR_CALIBRATION_FACTOR;
+    float newFlowRate = ((1000.0 / (currMs - flowSensorPrevTimestamp)) * pulseCount) / flowSensorCalibrationFactor;
     flowSensorPrevTimestamp = currMs;
 
     // Divide the flow rate in L/min by 60 to get water flow per second, then multiply by 1000 to convert to mL.
@@ -935,6 +961,18 @@ void valveUpdate(bool isOpen)
   else
   {
     digitalWrite(VALVE_PIN, LOW);
+  }
+}
+
+void updateFlowSensorCalibrationFactor(float value)
+{
+  if (abs(value - flowSensorCalibrationFactor) > __FLT_EPSILON__)
+  {
+    flowSensorCalibrationFactor = value;
+
+    prefs.putFloat(KEY_FLOW_SENSOR_CALIBRATION_FACTOR, value);
+
+    wsSend(KEY_FLOW_SENSOR_CALIBRATION_FACTOR, String(value));
   }
 }
 
